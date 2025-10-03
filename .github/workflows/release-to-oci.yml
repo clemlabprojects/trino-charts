@@ -52,7 +52,7 @@ jobs:
         run: |
           echo '${{ secrets.ACTIONS_CLEMLABPROJECTS }}' | \
           helm registry login "${{ env.OCI_REGISTRY }}" \
-            --username "${{ secret.ROBOT_USER }}" \
+            --username "${{ secrets.ROBOT_USER }}" \
             --password-stdin
 
       - name: Push package to OCI
