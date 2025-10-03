@@ -51,8 +51,8 @@ jobs:
       - name: Login to Harbor OCI registry
         run: |
           echo '${{ secrets.ACTIONS_CLEMLABPROJECTS }}' | \
-          helm registry login "${{ env.HARBOR_ROBOT_USERNAME }}" \
-            --username "${{ env.ROBOT_USER }}" \
+          helm registry login "${{ env.OCI_REGISTRY }}" \
+            --username "${{ secret.ROBOT_USER }}" \
             --password-stdin
 
       - name: Push package to OCI
