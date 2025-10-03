@@ -50,10 +50,7 @@ jobs:
 
       - name: Login to Harbor OCI registry
         run: |
-          echo '${{ secrets.ACTIONS_CLEMLABPROJECTS }}' | \
-          helm registry login "${{ env.OCI_REGISTRY }}" \
-            --username "${{ secrets.ROBOT_USER }}" \
-            --password-stdin
+          echo '${{ secrets.ACTIONS_CLEMLABPROJECTS }}' | helm registry login '${{ env.OCI_REGISTRY }}' --username 'robot$clemlabprojects+github.actions.clemlabprojects.trino-charts' --password-stdin
 
       - name: Push package to OCI
         run: |
