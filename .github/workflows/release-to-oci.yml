@@ -51,7 +51,7 @@ jobs:
       - name: Login to Harbor OCI registry
         run: |
           echo '${{ secrets.ACTIONS_CLEMLABPROJECTS }}' | \
-          helm registry login "${{ env.OCI_REGISTRY }}" \
+          helm registry login "${{ env.HARBOR_ROBOT_USERNAME }}" \
             --username "${{ env.ROBOT_USER }}" \
             --password-stdin
 
