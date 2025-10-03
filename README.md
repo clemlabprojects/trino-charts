@@ -1,7 +1,7 @@
 
 Trino Community Kubernetes Helm Charts
 ===========
-[![CI/CD](https://github.com/clemlabprojects/trino-charts/actions/workflows/release-to-oci.yaml/badge.svg?branch=main)](https://github.com/clemlabprojects/trino-charts/actions/workflows/release-to-oci.yaml)
+[![Publish clemlab-trino to Clemlab OCI](https://github.com/clemlabprojects/trino-charts/actions/workflows/release-to-oci.yml/badge.svg)](https://github.com/clemlabprojects/trino-charts/actions/workflows/release-to-oci.yml)
 
 A repository of Helm charts for the Trino community. The following charts are
 included:
