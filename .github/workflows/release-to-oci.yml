@@ -5,7 +5,7 @@ on:
   push:
     branches: [ main ]
   schedule:
-    - cron: "0 6 * * *"   # optional: daily; remove if not needed
+    - cron: "0 6 * * *"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -21,7 +21,7 @@ jobs:
       CHART_DIR: charts/trino
     steps:
       - name: Checkout
-      - uses: actions/checkout@v5
+        uses: actions/checkout@v5
 
       - name: Setup Helm
         uses: azure/setup-helm@v4
@@ -36,9 +36,9 @@ jobs:
         run: |
           CHART_NAME=$(yq -r '.name' "${CHART_DIR}/Chart.yaml")
           CHART_VERSION=$(yq -r '.version' "${CHART_DIR}/Chart.yaml")
-          echo "chart_name=${CHART_NAME}"   >> $GITHUB_OUTPUT
-          echo "chart_version=${CHART_VERSION}" >> $GITHUB_OUTPUT
-          echo "Chart: ${CHART_NAME} Version: ${CHART_VERSION}"
+          echo "chart_name=${CHART_NAME}"   >> "$GITHUB_OUTPUT"
+          echo "chart_version=${CHART_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Chart: ${CHART_NAME}  Version: ${CHART_VERSION}"
 
       - name: Lint
         run: helm lint "${CHART_DIR}"
@@ -71,6 +71,4 @@ jobs:
 
       - name: Print final pull command (for logs)
         run: |
-          echo "✅ Publish OK"
-          echo "You can pull with:"
           echo "helm pull oci://${{ env.OCI_REGISTRY }}/${{ env.OCI_REPO }}/${{ steps.meta.outputs.chart_name }} --version ${{ steps.meta.outputs.chart_version }}"
