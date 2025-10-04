@@ -17,7 +17,7 @@ jobs:
     env:
       OCI_REGISTRY: registry.clemlab.com
       OCI_REPO: clemlabprojects/charts
-      ROBOT_USER: github.actions.clemlabprojects.trino-charts
+      ROBOT_USER: clemlabprojects+github.actions.clemlabprojects.trino-charts
       CHART_DIR: charts/trino
     steps:
       - name: Checkout
