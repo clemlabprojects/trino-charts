@@ -17,7 +17,7 @@ workerNameOverride:
 
 image:
   # -- Image registry, defaults to empty, which results in DockerHub usage
-  registry: "registry.clemlab.com"
+  registry: ""
   # -- Repository location of the Trino image, typically `organization/imagename`
   repository: registry.clemlab.com/clemlabprojects/trino
   # -- Image tag, defaults to the Trino release version specified as `appVersion` from Chart.yaml
