@@ -11,6 +11,7 @@ image:
   useRepositoryAsSoleImageReference: false
   pullPolicy: IfNotPresent
 
+imagePullSecrets: []
 appName: kerberos-keytab-mutating-webhook
 replicaCount: 2
 
