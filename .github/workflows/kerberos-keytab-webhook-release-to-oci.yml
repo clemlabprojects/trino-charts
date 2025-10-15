@@ -73,7 +73,7 @@ jobs:
         uses: docker/login-action@v3
         with:
           registry: registry.clemlab.com
-          username: 'robot$clemlabprojects+github.actions.clemlabprojects.kerberos-keytab-mutating-webhook-charts'       # robot$...
+          username: 'robot$clemlabprojects+github.actions.clemlabprojects.trino-charts'       # robot$...
           password: ${{ secrets.ACTIONS_CLEMLABPROJECTS }}
 
       - name: Push package to OCI
