@@ -1,0 +1,61 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "webhook.fullname" . }}
+  labels: {{- include "webhook.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "webhook.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels: {{- include "webhook.labels" . | nindent 8 }}
+      annotations:
+        checksum/ambari-mtls: {{ include (print $.Template.BasePath "/_secret-hash.yaml") . | sha256sum }}
+    spec:
+      serviceAccountName: {{ include "webhook.serviceAccountName" . }}
+      volumes:
+        - name: backend-mtls
+          secret:
+            secretName: {{ .Values.clientMtls.secretName }}
+        - name: serving-tls
+          secret:
+            secretName: {{ .Values.serverTls.secretName }}
+      containers:
+        - name: webhook
+          image: {{ include "webhook.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: https
+              containerPort: {{ .Values.containerPort }}
+          env:
+            - { name: LISTEN_ADDRESS, value: ":{{ .Values.containerPort }}" }
+            - { name: KRB_REALM, value: {{ .Values.backend.krbRealm | quote }} }
+            - { name: DNS_SUFFIX, value: {{ .Values.dnsSuffix | quote }} }
+            - { name: BACKEND_URL, value: {{ .Values.backend.url | quote }} }
+            - { name: BACKEND_AUTH_MODE, value: "mtls" }
+            - { name: WEBHOOK_TIMEOUT, value: "{{ .Values.webhook.timeoutSeconds }}s" }
+            - { name: BACKEND_TIMEOUT, value: {{ .Values.backend.timeout | quote }} }
+            - { name: BACKEND_RETRIES, value: "{{ .Values.backend.retries }}" }
+            - { name: FAILURE_POLICY_LOG, value: "{{ .Values.backend.failurePolicyLog }}" }
+            - { name: BACKEND_CLIENT_CERT_PATH, value: {{ .Values.clientMtls.certPath | quote }} }
+            - { name: BACKEND_CLIENT_KEY_PATH,  value: {{ .Values.clientMtls.keyPath | quote }} }
+            - { name: BACKEND_CA_CERT_PATH,     value: {{ .Values.clientMtls.caPath  | quote }} }
+          volumeMounts:
+            - { name: backend-mtls, mountPath: /auth, readOnly: true }
+            - { name: serving-tls,  mountPath: /tls,  readOnly: true }
+          readinessProbe:
+            httpGet: { path: /readyz, port: https, scheme: HTTPS }
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: { path: /healthz, port: https, scheme: HTTPS }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      nodeSelector: {{- toYaml .Values.nodeSelector | nindent 8 }}
+      affinity:     {{- toYaml .Values.affinity     | nindent 8 }}
+      tolerations:  {{- toYaml .Values.tolerations  | nindent 8 }}

@@ -1,0 +1,52 @@
+image:
+  registry: registry.clemlab.com
+  repository: clemlabprojects
+  name: kerberos-keytab-mutating-webhook
+  tag: "1.0.0.1"
+  pullPolicy: IfNotPresent
+
+appName: kerberos-keytab-mutating-webhook
+replicaCount: 2
+
+service:
+  port: 443
+containerPort: 8443
+dnsSuffix: ".svc.cluster.local"
+
+backend:
+  url: "https://ambari-backend.ambari-managed-mutating-webhooks.svc:8443"
+  krbRealm: "EXAMPLE.COM"
+  timeout: "3s"
+  retries: 2
+  failurePolicyLog: true
+
+# (created by Ambari)
+clientMtls:
+  secretName: kerberos-keytab-mutating-webhook-client-tls
+  certPath: /auth/client.crt
+  keyPath:  /auth/client.key
+  caPath:   /auth/ca.crt
+
+# (created by Ambari)
+serverTls:
+  secretName: kerberos-keytab-mutating-webhook-tls
+
+# REQUIRED: base64(DER) CA used to sign the webhook serving cert
+webhook:
+  caBundle: ""          # Ambari will set this
+  timeoutSeconds: 5
+  failurePolicy: Fail
+
+selectors:
+  namespace: { key: clemlab.com/webhooks-enabled, value: "true" }
+  object:    { key: security.clemlab.com/needs-keytab, value: "true" }
+
+rbac: { create: true }
+
+resources:
+  limits: { cpu: 200m, memory: 256Mi }
+  requests: { cpu: 50m,  memory: 128Mi }
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

@@ -1,0 +1,15 @@
+apiVersion: v2
+name: kerberos-keytab-mutating-webhook
+description: Mutating webhook that fetches keytabs from Ambari using mTLS client auth
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+kubeVersion: ">=1.25.0-0"
+icon: https://www.clemlab.com/img/logo.png
+
+home: https://www.clemlab.com/
+sources:
+  - https://github.com/clemlabprojects/trino-charts
+
+maintainers:
+  - name: clemlabprojects

@@ -1,0 +1,12 @@
+1) Ensure Ambari has created/rotated the client mTLS Secret:
+   kubectl -n {{ .Release.Namespace }} get secret {{ .Values.clientMtls.secretName }}
+
+2) Serving TLS:
+   - mode={{ .Values.serverTls.mode }}
+     * cert-manager: CABundle auto-injected via annotation.
+     * openshift:    CABundle injected by cluster.
+     * external:     provide .Values.webhook.caBundle.
+
+3) Scope is controlled by selectors:
+   ns: {{ .Values.selectors.namespace.key }}={{ .Values.selectors.namespace.value }}
+   pod: {{ .Values.selectors.object.key }}={{ .Values.selectors.object.value }}
