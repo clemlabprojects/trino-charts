@@ -9,6 +9,7 @@ A repository of Helm charts from Trino community enriched by Clemlab company. Th
 included:
 
 
+* `ambari/kerberos-keytab-mutating-webhook` for [Kerberos](https://web.mit.edu/kerberos/)
 * `trino/trino` for [Trino](https://trino.io/)
 * `trino/trino-gateway` for [Trino Gateway](https://trinodb.github.io/trino-gateway)
 
