@@ -1,10 +1,12 @@
 
 Trino Community Kubernetes Helm Charts
 ===========
-[![Publish clemlab-trino to Clemlab OCI](https://github.com/clemlabprojects/trino-charts/actions/workflows/release-to-oci.yml/badge.svg)](https://github.com/clemlabprojects/trino-charts/actions/workflows/release-to-oci.yml)
+[![Publish clemlab-trino chart to Clemlab OCI](https://github.com/clemlabprojects/trino-charts/actions/workflows/release-to-oci.yml/badge.svg)](https://github.com/clemlabprojects/trino-charts/actions/workflows/release-to-oci.yml)
 
-A repository of Helm charts for the Trino community. The following charts are
+[![Publish kerberos-keytab-mutating-webhook chart to Clemlab OCI](https://github.com/clemlabprojects/trino-charts/actions/workflows/kerberos-keytab-webhook-release-to-oci.yml/badge.svg)](https://github.com/clemlabprojects/trino-charts/actions/workflows/kerberos-keytab-webhook-release-to-oci.yml)
+A repository of Helm charts from Trino community enriched by Clemlab company. The following charts are
 included:
+
 
 * `trino/trino` for [Trino](https://trino.io/)
 * `trino/trino-gateway` for [Trino Gateway](https://trinodb.github.io/trino-gateway)
