@@ -3,7 +3,6 @@ kind: Service
 metadata:
   name: {{ include "webhook.fullname" . }}
   labels: {{- include "webhook.labels" . | nindent 4 }}
-  annotations: []
 spec:
   selector:
     app.kubernetes.io/name: {{ include "webhook.name" . }}
