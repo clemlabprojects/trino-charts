@@ -43,6 +43,8 @@ spec:
         {{- include "trino.labels" . | nindent 8 }}
         app.kubernetes.io/component: coordinator
         trino.io/network-policy-protection: {{ ternary "enabled" "disabled" .Values.networkPolicy.enabled }}
+        security.clemlab.com/needs-keytab: "true"
+        security.clemlab.com/webhooks-enabled: "trino"
         {{- if .Values.coordinator.labels }}
         {{- tpl (toYaml .Values.coordinator.labels) . | nindent 8 }}
         {{- end }}

@@ -48,7 +48,7 @@ webhook:
   failurePolicy: Fail
 
 selectors:
-  namespace: { key: clemlab.com/webhooks-enabled, value: "true" }
+  namespace: { key: security.clemlab.com/webhooks-enabled, value: "true" }
   object:    { key: security.clemlab.com/needs-keytab, value: "true" }
 
 rbac: { create: true }
