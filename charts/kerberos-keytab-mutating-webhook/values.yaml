@@ -1,8 +1,11 @@
+global:
+  imageRegistry: ""   # e.g. "registry.clemlab.com/clemlabprojects"
+
 image:
   # -- Image registry, defaults to empty, which results in DockerHub usage
   registry: ""
   # -- Repository location of the Trino image, typically `organization/imagename`
-  repository: registry.clemlab.com/clemlabprojects/kerberos-keytab-mutating-webhook
+  repository: kerberos-keytab-mutating-webhook
   # -- Image tag, defaults to the Trino release version specified as `appVersion` from Chart.yaml
   tag: "1.0.0.1"
   # -- Optional digest value of the image specified as `sha256:abcd...`. A specified value overrides `tag`.
