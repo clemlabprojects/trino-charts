@@ -1,9 +1,20 @@
+{{/* webhook.name: base name, optionally overridden */}}
 {{- define "webhook.name" -}}
-{{- default .Chart.Name .Values.appName | trunc 63 | trimSuffix "-" -}}
+{{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
 
+{{/* webhook.fullname: final resource name, supports fullnameOverride */}}
 {{- define "webhook.fullname" -}}
-{{- printf "%s-%s" .Release.Name (include "webhook.name" .) | trunc 63 | trimSuffix "-" -}}
+{{- if .Values.fullnameOverride -}}
+{{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" -}}
+{{- else -}}
+  {{- $name := include "webhook.name" . -}}
+  {{- if contains .Release.Name $name -}}
+    {{- .Release.Name | trunc 63 | trimSuffix "-" -}}
+  {{- else -}}
+    {{- printf "%s-%s" .Release.Name $name | trunc 63 | trimSuffix "-" -}}
+  {{- end -}}
+{{- end -}}
 {{- end -}}
 
 {{- define "webhook.labels" -}}
