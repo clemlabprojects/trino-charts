@@ -32,14 +32,14 @@ backend:
 
 # (created by Ambari)
 clientMtls:
-  secretName: kerberos-keytab-mutating-webhook-client-tls
+  secretName: keytab-webhook-client-tls
   certPath: /auth/client.crt
   keyPath:  /auth/client.key
   caPath:   /auth/ca.crt
 
 # (created by Ambari)
 serverTls:
-  secretName: kerberos-keytab-mutating-webhook-tls
+  secretName: keytab-webhook-tls
 
 # REQUIRED: base64(DER) CA used to sign the webhook serving cert
 webhook:
