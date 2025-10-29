@@ -23,6 +23,9 @@ spec:
         - name: serving-tls
           secret:
             secretName: {{ .Values.serverTls.secretName }}
+        - name: backend-ca
+          secret:
+            secretName: {{ .Values.backend.caSecretName }}
       containers:
         - name: webhook
           image: {{ include "webhook.image" . | quote }}
@@ -42,10 +45,12 @@ spec:
             - { name: FAILURE_POLICY_LOG, value: "{{ .Values.backend.failurePolicyLog }}" }
             - { name: BACKEND_CLIENT_CERT_PATH, value: {{ .Values.clientMtls.certPath | quote }} }
             - { name: BACKEND_CLIENT_KEY_PATH,  value: {{ .Values.clientMtls.keyPath | quote }} }
-            - { name: BACKEND_CA_CERT_PATH,     value: {{ .Values.clientMtls.caPath  | quote }} }
+            # - { name: BACKEND_CA_CERT_PATH,     value: {{ .Values.clientMtls.caPath  | quote }} }
+            - { name: BACKEND_CA_CERT_PATH,     value: "{{ .Values.backend.caMountPath }}/{{ .Values.backend.caFile }}" }
           volumeMounts:
             - { name: backend-mtls, mountPath: /auth, readOnly: true }
             - { name: serving-tls,  mountPath: /tls,  readOnly: true }
+            - { name: backend-ca,   mountPath: {{ .Values.backend.caMountPath | quote }}, readOnly: true }
           readinessProbe:
             httpGet: { path: /readyz, port: https, scheme: HTTPS }
             initialDelaySeconds: 2

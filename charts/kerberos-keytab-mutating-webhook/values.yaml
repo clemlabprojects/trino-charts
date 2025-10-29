@@ -29,6 +29,9 @@ backend:
   timeout: "3s"
   retries: 2
   failurePolicyLog: true
+  caSecretName: ambari-root-ca
+  caMountPath: /ca
+  caFile: ca.crt
 
 # (created by Ambari)
 clientMtls:
