@@ -4,6 +4,9 @@ on:
   workflow_dispatch: {}
   push:
     branches: [ main ]
+    paths:
+      - "charts/keda/**"
+      - ".github/workflows/release-keda-to-oci.yml"
   schedule:
     - cron: "0 6 * * *"
 

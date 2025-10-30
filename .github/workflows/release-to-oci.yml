@@ -4,6 +4,9 @@ on:
   workflow_dispatch: {}
   push:
     branches: [ main ]
+    paths:
+      - "charts/trino/**"
+      - ".github/workflows/release-to-oci.yml"
   schedule:
     - cron: "0 6 * * *"
 
