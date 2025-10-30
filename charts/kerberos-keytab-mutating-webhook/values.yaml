@@ -32,6 +32,14 @@ backend:
   caSecretName: ambari-root-ca
   caMountPath: /ca
   caFile: ca.crt
+# needs mtls + basic in order to encrypt communication to Ambari from webhook and be able to authenticate
+auth:
+  mode: "mtls,basic"        # always do mTLS + Basic
+  basic:
+    secretName: webhook-user
+    mountPath: /basic-auth
+    usernameKey: username   # keys created by the View backend
+    passwordKey: password
 
 # (created by Ambari)
 clientMtls:

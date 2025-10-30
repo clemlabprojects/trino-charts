@@ -14,6 +14,7 @@ spec:
       labels: {{- include "webhook.labels" . | nindent 8 }}
       annotations:
         checksum/ambari-mtls: {{ include (print $.Template.BasePath "/_secret-hash.yaml") . | sha256sum }}
+        checksum/basic-auth: {{ toYaml .Values.auth.basic | sha256sum }}
     spec:
       serviceAccountName: {{ include "webhook.serviceAccountName" . }}
       volumes:
@@ -26,6 +27,9 @@ spec:
         - name: backend-ca
           secret:
             secretName: {{ .Values.backend.caSecretName }}
+        - name: backend-basic
+          secret:
+            secretName: {{ .Values.auth.basic.secretName }}
       containers:
         - name: webhook
           image: {{ include "webhook.image" . | quote }}
@@ -47,10 +51,13 @@ spec:
             - { name: BACKEND_CLIENT_KEY_PATH,  value: {{ .Values.clientMtls.keyPath | quote }} }
             # - { name: BACKEND_CA_CERT_PATH,     value: {{ .Values.clientMtls.caPath  | quote }} }
             - { name: BACKEND_CA_CERT_PATH,     value: "{{ .Values.backend.caMountPath }}/{{ .Values.backend.caFile }}" }
+            - { name: BACKEND_BASIC_USER_PATH, value: "{{ .Values.auth.basic.mountPath }}/{{ .Values.auth.basic.usernameKey }}" }
+            - { name: BACKEND_BASIC_PASS_PATH, value: "{{ .Values.auth.basic.mountPath }}/{{ .Values.auth.basic.passwordKey }}" }
           volumeMounts:
             - { name: backend-mtls, mountPath: /auth, readOnly: true }
             - { name: serving-tls,  mountPath: /tls,  readOnly: true }
             - { name: backend-ca,   mountPath: {{ .Values.backend.caMountPath | quote }}, readOnly: true }
+            - { name: backend-basic, mountPath: {{ .Values.auth.basic.mountPath | quote }}, readOnly: true }
           readinessProbe:
             httpGet: { path: /readyz, port: https, scheme: HTTPS }
             initialDelaySeconds: 2

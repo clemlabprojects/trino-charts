@@ -67,3 +67,21 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- define "webhook.serviceAccountName" -}}
 {{ include "webhook.fullname" . }}
 {{- end -}}
+
+{{/* Return "true"/"false" if the auth mode list (Values.auth.mode) contains a given token (case/space-insensitive). Usage:
+     {{ if eq (include "webhook.auth.has" (list "basic" .)) "true" }} ... {{ end }} */}}
+{{- define "webhook.auth.has" -}}
+{{- $want  := lower (index . 0) -}}
+{{- $ctx   := index . 1 -}}
+{{- $raw   := splitList "," (lower (default "" $ctx.Values.auth.mode)) -}}
+{{- $norm  := list -}}
+{{- range $raw }}
+  {{- $norm = append $norm (trim . " ") -}}
+{{- end -}}
+{{- if has $want $norm -}}true{{- else -}}false{{- end -}}
+{{- end -}}
+
+{{/* Convenience wrappers */}}
+{{- define "webhook.auth.hasBasic" -}}{{ include "webhook.auth.has" (list "basic" .) -}}{{- end -}}
+{{- define "webhook.auth.hasMtls"  -}}{{ include "webhook.auth.has" (list "mtls"  .) -}}{{- end -}}
+{{- define "webhook.auth.hasSaJwt" -}}{{ include "webhook.auth.has" (list "serviceaccount-jwt" .) -}}{{- end -}}
