@@ -25,6 +25,8 @@ spec:
     matchLabels:
       {{- include "trino.selectorLabels" . | nindent 6 }}
       app.kubernetes.io/component: coordinator
+      security.clemlab.com/needs-keytab: "true"
+      security.clemlab.com/service:  {{ template "trino.fullname" . }}
   template:
     metadata:
       annotations:

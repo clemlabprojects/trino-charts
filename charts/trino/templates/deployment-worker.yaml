@@ -45,7 +45,7 @@ spec:
         {{- include "trino.labels" . | nindent 8 }}
         app.kubernetes.io/component: worker
         security.clemlab.com/needs-keytab: "true"
-        security.clemlab.com/webhooks-enabled: "trino"
+        security.clemlab.com/service: {{ template "trino.fullname" . }}-worker
         trino.io/network-policy-protection: {{ ternary "enabled" "disabled" .Values.networkPolicy.enabled }}
         {{- if .Values.worker.labels }}
         {{- tpl (toYaml .Values.worker.labels) . | nindent 8 }}
