@@ -42,7 +42,7 @@ spec:
             - { name: KRB_REALM, value: {{ .Values.backend.krbRealm | quote }} }
             - { name: DNS_SUFFIX, value: {{ .Values.dnsSuffix | quote }} }
             - { name: BACKEND_URL, value: {{ .Values.backend.url | quote }} }
-            - { name: BACKEND_AUTH_MODE, value: "mtls" }
+            - { name: BACKEND_AUTH_MODE, value: {{ .Values.auth.mode | quote }} }
             - { name: WEBHOOK_TIMEOUT, value: "{{ .Values.webhook.timeoutSeconds }}s" }
             - { name: BACKEND_TIMEOUT, value: {{ .Values.backend.timeout | quote }} }
             - { name: BACKEND_RETRIES, value: "{{ .Values.backend.retries }}" }
