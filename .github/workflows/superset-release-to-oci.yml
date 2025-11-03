@@ -1,0 +1,96 @@
+name: Publish Apache Superset to Clemlab OCI
+
+on:
+  workflow_dispatch: {}
+  push:
+    branches: [ main ]
+    paths:
+      - "charts/superset/**"
+      - ".github/workflows/superset-release-to-oci.yml"
+  schedule:
+    - cron: "0 6 * * *"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: harbor
+    env:
+      OCI_REGISTRY: registry.clemlab.com
+      OCI_REPO: clemlabprojects/charts
+      # Robot account dedicated to webhook charts (adjust if you prefer to reuse the Trino one)
+      ROBOT_USER: clemlabprojects+github.actions.clemlabprojects.trino-charts
+      CHART_DIR: charts/superset
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.19.0
+
+      - name: Install yq
+        uses: mikefarah/yq@v4.48.1
+
+      - name: Extract chart name & version
+        id: meta
+        run: |
+          CHART_NAME=$(yq -r '.name' "${CHART_DIR}/Chart.yaml")
+          CHART_VERSION=$(yq -r '.version' "${CHART_DIR}/Chart.yaml")
+          echo "chart_name=${CHART_NAME}"       >> "$GITHUB_OUTPUT"
+          echo "chart_version=${CHART_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Chart: ${CHART_NAME}  Version: ${CHART_VERSION}"
+
+      - name: Helm dependency update (if any)
+        run: helm dependency update "${CHART_DIR}"
+
+      - name: Lint chart
+        run: helm lint "${CHART_DIR}"
+
+      - name: Package chart
+        run: |
+          mkdir -p dist
+          helm package "${CHART_DIR}" -d dist
+
+      # Login for helm registry (no secrets printed)
+      - name: Login to Harbor OCI registry (via helm)
+        env:
+          HARBOR_USER: ${{ secrets.HARBOR_ROBOT_USERNAME }}     # robot$clemlabprojects+github.actions.clemlabprojects.trino-charts
+          HARBOR_PASS: ${{ secrets.ACTIONS_CLEMLABPROJECTS }}   # robot token/password
+        run: |
+          echo "${{ secrets.ACTIONS_CLEMLABPROJECTS }}" > /tmp/credential.txt
+          cat /tmp/credential.txt
+          helm registry login 'registry.clemlab.com' --username 'robot$clemlabprojects+github.actions.clemlabprojects.trino-charts' --password-stdin < /tmp/credential.txt
+
+
+      # Docker login helps some helm push/pull edge cases with Harbor
+      - name: Docker login to Harbor (works for Helm too)
+        uses: docker/login-action@v3
+        with:
+          registry: registry.clemlab.com
+          username: 'robot$clemlabprojects+github.actions.clemlabprojects.trino-charts'       # robot$...
+          password: ${{ secrets.ACTIONS_CLEMLABPROJECTS }}
+
+      - name: Push package to OCI
+        run: |
+          for TGZ in dist/*.tgz; do
+            echo "Pushing $TGZ to oci://${{ env.OCI_REGISTRY }}/${{ env.OCI_REPO }}"
+            helm push "$TGZ" "oci://${{ env.OCI_REGISTRY }}/${{ env.OCI_REPO }}"
+          done
+
+      - name: Verify by pulling the just-pushed version
+        run: |
+          set -euo pipefail
+          echo "Pulling back oci://${{ env.OCI_REGISTRY }}/${{ env.OCI_REPO }}/${{ steps.meta.outputs.chart_name }} --version ${{ steps.meta.outputs.chart_version }}"
+          helm pull "oci://${{ env.OCI_REGISTRY }}/${{ env.OCI_REPO }}/${{ steps.meta.outputs.chart_name }}" \
+            --version "${{ steps.meta.outputs.chart_version }}" --untar
+          ls -la "./${{ steps.meta.outputs.chart_name }}"
+
+      - name: Print final pull command (for logs)
+        run: |
+          echo "helm pull oci://${{ env.OCI_REGISTRY }}/${{ env.OCI_REPO }}/${{ steps.meta.outputs.chart_name }} --version ${{ steps.meta.outputs.chart_version }}"
