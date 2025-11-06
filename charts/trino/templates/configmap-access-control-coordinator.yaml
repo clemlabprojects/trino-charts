@@ -1,18 +1,4 @@
-{{- if eq .Values.accessControl.type "ranger" }}
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: {{ template "trino.fullname" . }}-access-control-volume-coordinator
-  namespace: {{ .Release.Namespace }}
-  labels:
-    {{- include "trino.labels" . | nindent 4 }}
-    app.kubernetes.io/component: coordinator
-data:
-  access-control.properties: |
-    access-control.name=ranger
-    ranger.service.name={{ .Values.ranger.serviceName | quote }}
-    ranger.plugin.config.resource=/etc/trino/ranger/ranger-trino-security.xml{{- if .Values.ranger.admin.ssl.enabled }},/etc/trino/ranger/ranger-policymgr-ssl.xml{{- end }}
-{{- else if eq .Values.accessControl.type "configmap" }}
+{{- if eq .Values.accessControl.type "configmap" }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
