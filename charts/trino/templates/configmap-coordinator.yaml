@@ -81,22 +81,35 @@ data:
     {{- end }}
 
 {{- if .Values.accessControl }}
-  {{- if eq .Values.accessControl.type "configmap" }}
+  {{- $t := lower (default "" .Values.accessControl.type) }}
+
+  {{- if eq $t "configmap" }}
   access-control.properties: |
     access-control.name=file
     {{- if .Values.accessControl.refreshPeriod }}
     security.refresh-period={{ .Values.accessControl.refreshPeriod }}
     {{- end }}
     security.config-file={{ .Values.server.config.path }}/access-control/{{ .Values.accessControl.configFile | default "rules.json" }}
-  {{- else if eq .Values.accessControl.type "properties" }}
+
+  {{- else if eq $t "properties" }}
   access-control.properties: |
     {{- if .Values.accessControl.properties }}
     {{- .Values.accessControl.properties | nindent 4 }}
-    {{- else}}
-    {{- fail "accessControl.properties is required when accessControl.type is 'properties'." }}
+    {{- else }}
+    {{- fail "accessControl.properties is required when accessControl.type = 'properties'." }}
     {{- end }}
-  {{- else}}
-  {{- fail "Invalid accessControl.type value. It must be either 'configmap' or 'properties'." }}
+
+  {{- else if eq $t "ranger" }}
+  access-control.properties: |
+    access-control.name=ranger
+    {{- if not .Values.ranger.serviceName }}
+    {{- fail "ranger.serviceName is required when accessControl.type = 'ranger'." }}
+    {{- end }}
+    ranger.service.name={{ .Values.ranger.serviceName | quote }}
+    ranger.plugin.config.resource=/etc/trino/ranger/ranger-trino-security.xml{{- if .Values.ranger.admin.ssl.enabled }},/etc/trino/ranger/ranger-policymgr-ssl-trino.xml{{- end }}
+
+  {{- else }}
+  {{- fail "Invalid accessControl.type. Must be one of: 'configmap', 'properties', or 'ranger'." }}
   {{- end }}
 {{- end }}
 
