@@ -155,3 +155,10 @@ Create the secret name for the group-provider file
 {{- end }}
 {{- end }}
 {{- end }}
+
+{{/*
+Returns "true" when Ranger integration should be enabled (based on accessControl.type).
+*/}}
+{{- define "trino.ranger.enabled" -}}
+{{- if eq (default "" .Values.accessControl.type) "ranger" -}}true{{- else -}}false{{- end -}}
+{{- end -}}

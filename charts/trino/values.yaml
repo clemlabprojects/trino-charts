@@ -11,6 +11,7 @@
 # workerNameOverride: trino-worker-adhoc
 # nameOverride: trino-adhoc
 # ```
+
 nameOverride:
 coordinatorNameOverride:
 workerNameOverride:
@@ -36,6 +37,75 @@ image:
 #   - name: registry-credentials
 # ```
 imagePullSecrets: []
+
+global:
+  security:
+    kerberos:
+      enabled: true
+      # Single source of truth for realm
+      realm: EXAMPLE.COM # can be controlled by ambari's charts.json with dynamicValues
+
+      # How the webhook builds the principal. We keep these here so Helm and
+      # the webhook share the same assumptions.
+      principalMode: headless        # service | headless | auto
+      principalFqdnMode: namespace   # pod | namespace
+      principalTemplate: "{service}/{fqdn}@{realm}"  # only used when principalMode=service/auto
+
+      # Where the webhook mounts the keytab + how the Secret stores the data
+      keytab:
+        mountPath: /etc/security/keytabs
+        secretDataKey: service.keytab
+
+    # Labels the webhook uses (don’t change unless you changed the webhook env)
+    admissionWebhook:
+      injectKeytab:
+        enabled: true
+        needsKeytabLabelKey: security.clemlab.com/needs-keytab
+        serviceLabelKey: security.clemlab.com/service
+
+accessControl:
+  # 'configmap' keeps your current behavior; set to 'ranger' to enable Ranger integration
+  type: configmap # configmap | ranger - can be controlled by ambari's charts.json with dynamicValues
+
+# =========================
+# Hadoop client configuration (independent of Ranger)
+# =========================
+hadoopConf:
+  enabled: false
+  # Ambari View will create this ConfigMap if enabled, with keys: core-site.xml, hdfs-site.xml
+  configMapName: trino-hadoop-conf
+  # (Optional) you could use a Secret instead (mutually exclusive with configMapName)
+  # secretName: trino-hadoop-conf-secret
+  mountPath: /etc/hadoop/conf
+  setEnv: true  # export HADOOP_CONF_DIR=/etc/hadoop/conf
+
+# =========================
+# Ranger integration (coordinator-only)
+# =========================
+ranger:
+  # Name of the Ranger repository to create/use
+  # All files in one ConfigMap created by Ambari View backend:
+  #   - ranger-trino-security.xml
+  #   - (optional) ranger-policymgr-ssl.xml  ← if you prefer keeping SSL XML separate, see below
+  securityConfigMapName: ranger-trino-plugin-properties
+  # If you keep SSL XML separate from security XML, uncomment and use this instead:
+  # sslConfigMapName: trino-ranger-ssl
+
+  admin:
+    ssl:
+      enabled: true
+      truststore:
+        secretName: ranger-admin-truststore     # Ambari-created Secret
+        fileKey: ranger.truststore.jks          # data key in Secret
+        type: jks
+        # If you want the container env var for password (optional)
+        passwordSecretName: ranger-admin-ts-pass
+        passwordKey: password
+      mtls:
+        enabled: false
+        secretName: trino-to-ranger-client      # optional client cert/key secret
+        certKey: tls.crt
+        keyKey: tls.key
 
 server:
   workers: 2

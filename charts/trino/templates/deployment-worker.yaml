@@ -1,4 +1,5 @@
 {{- $workerJmx := merge .Values.jmx.worker (omit .Values.jmx "coordinator" "worker") -}}
+{{- $rangerEnabled := eq (include "trino.ranger.enabled" .) "true" -}}
 {{- if or .Values.server.keda.enabled (gt (int .Values.server.workers) 0) }}
 apiVersion: apps/v1
 kind: Deployment
@@ -35,19 +36,19 @@ spec:
         checksum/catalog-config: {{ include (print $.Template.BasePath "/configmap-catalog.yaml") . | sha256sum }}
         {{- end }}
         checksum/worker-config: {{ include (print $.Template.BasePath "/configmap-worker.yaml") . | sha256sum }}
-      {{- if .Values.worker.gracefulShutdown.enabled }}
+        {{- if .Values.worker.gracefulShutdown.enabled }}
         checksum/access-control-config: {{ include (print $.Template.BasePath "/configmap-access-control-worker.yaml") . | sha256sum }}
-      {{- end }}
+        {{- end }}
       {{- if .Values.worker.annotations }}
       {{- tpl (toYaml .Values.worker.annotations) . | nindent 8 }}
       {{- end }}
       labels:
         {{- include "trino.labels" . | nindent 8 }}
         app.kubernetes.io/component: worker
-        security.clemlab.com/needs-keytab: "true"
-        security.clemlab.com/service: trino-worker
-        # security.clemlab.com/service: {{ template "trino.fullname" . }}-worker
         trino.io/network-policy-protection: {{ ternary "enabled" "disabled" .Values.networkPolicy.enabled }}
+        # --- keytab injection via global webhook label keys ---
+        {{ .Values.global.security.admissionWebhook.injectKeytab.needsKeytabLabelKey }}: "true"
+        {{ .Values.global.security.admissionWebhook.injectKeytab.serviceLabelKey }}: {{ .Values.worker.serviceName | default "trino-worker" | quote }}
         {{- if .Values.worker.labels }}
         {{- tpl (toYaml .Values.worker.labels) . | nindent 8 }}
         {{- end }}
@@ -102,6 +103,19 @@ spec:
           secret:
             secretName: {{ tpl .secretName $ }}
         {{- end }}
+
+        # ---------- Hadoop configs (core-site.xml / hdfs-site.xml) ----------
+        {{- if and .Values.hadoopConf.enabled (or .Values.hadoopConf.configMapName .Values.hadoopConf.secretName) }}
+        - name: hadoop-conf
+          {{- if .Values.hadoopConf.secretName }}
+          secret:
+            secretName: {{ .Values.hadoopConf.secretName }}
+          {{- else }}
+          configMap:
+            name: {{ .Values.hadoopConf.configMapName }}
+          {{- end }}
+        {{- end }}
+
         {{- with .Values.worker.additionalVolumes }}
         {{- tpl (. | toYaml) $ | nindent 8 }}
         {{- end }}
@@ -126,6 +140,10 @@ spec:
             {{- toYaml .Values.containerSecurityContext | nindent 12 }}
           env:
             {{- toYaml .Values.env | nindent 12 }}
+            {{- if and .Values.hadoopConf.enabled .Values.hadoopConf.setEnv }}
+            - name: HADOOP_CONF_DIR
+              value: {{ .Values.hadoopConf.mountPath | default "/etc/hadoop/conf" }}
+            {{- end }}
           envFrom:
             {{- tpl (toYaml .Values.envFrom) . | nindent 12 }}
           volumeMounts:
@@ -169,6 +187,13 @@ spec:
               subPath: {{ .subPath }}
               {{- end }}
             {{- end }}
+
+            # ---------- Hadoop conf mount ----------
+            {{- if and .Values.hadoopConf.enabled (or .Values.hadoopConf.configMapName .Values.hadoopConf.secretName) }}
+            - name: hadoop-conf
+              mountPath: {{ .Values.hadoopConf.mountPath | default "/etc/hadoop/conf" }}
+            {{- end }}
+
             {{- with .Values.worker.additionalVolumeMounts }}
             {{- . | toYaml | nindent 12 }}
             {{- end }}
