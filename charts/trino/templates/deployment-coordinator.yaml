@@ -71,23 +71,19 @@ spec:
           configMap:
             name: {{ template "trino.catalog" . }}
         {{- end }}
-
         - name: schemas-volume
           configMap:
             name: {{ template "trino.fullname" . }}-schemas-volume-coordinator
-
         {{- if eq .Values.accessControl.type "configmap" }}
         - name: access-control-volume
           configMap:
             name: {{ template "trino.fullname" . }}-access-control-volume-coordinator
         {{- end }}
-
         {{- if eq .Values.resourceGroups.type "configmap" }}
         - name: resource-groups-volume
           configMap:
             name: {{ template "trino.fullname" . }}-resource-groups-volume-coordinator
         {{- end }}
-
         {{- if or .Values.auth.passwordAuth .Values.auth.passwordAuthSecret }}
         - name: file-password-authentication-volume
           secret:
@@ -96,7 +92,6 @@ spec:
               - key: password.db
                 path: password.db
         {{- end }}
-
         {{- if or .Values.auth.groups .Values.auth.groupsAuthSecret }}
         - name: file-groups-authentication-volume
           secret:
@@ -105,13 +100,11 @@ spec:
               - key: group.db
                 path: group.db
         {{- end }}
-
         {{- if $coordinatorJmx.exporter.enabled }}
         - name: jmx-exporter-config-volume
           configMap:
             name: {{ template "trino.fullname" . }}-jmx-exporter-config-coordinator
         {{- end }}
-
         {{- range .Values.configMounts }}
         - name: {{ .name }}
           configMap:
@@ -132,7 +125,8 @@ spec:
           secret:
             secretName: {{ tpl .secretName $ }}
         {{- end }}
-
+        {{- with .Values.coordinator.additionalVolumes }}
+        {{- tpl (. | toYaml) $ | nindent 8 }}
         # ---------- Ranger plugin files ----------
         {{- if $rangerEnabled }}
         - name: ranger-security
@@ -175,7 +169,6 @@ spec:
           secret:
             secretName: {{ .Values.hadoopConf.secretName }}
         {{- end }}
-
       {{- if .Values.initContainers.coordinator }}
       initContainers:
         {{- if $rangerEnabled }}
@@ -188,13 +181,11 @@ spec:
         {{- end }}
       {{- tpl (toYaml .Values.initContainers.coordinator) . | nindent 6 }}
       {{- end }}
-
       {{- if .Values.imagePullSecrets}}
       imagePullSecrets:
         {{- toYaml .Values.imagePullSecrets | nindent 8 }}
       {{- end }}
       terminationGracePeriodSeconds: {{ .Values.coordinator.terminationGracePeriodSeconds }}
-
       containers:
         - name: {{ .Chart.Name }}-coordinator
           image: {{ include "trino.image" . }}
@@ -202,6 +193,7 @@ spec:
           securityContext:
             {{- toYaml .Values.containerSecurityContext | nindent 12 }}
           env:
+            {{- toYaml .Values.env | nindent 12 }}
             {{- range $e := (default (list) .Values.env) }}
             - name: {{ $e.name }}
               {{- if $e.value }}
@@ -225,13 +217,8 @@ spec:
             - name: HADOOP_CONF_DIR
               value: {{ .Values.hadoopConf.mountPath | default "/etc/hadoop/conf" }}
             {{- end }}
-
-          {{- with .Values.envFrom }}
           envFrom:
-            {{- tpl (toYaml .) $ | nindent 12 }}
-          {{- end }}
-          # --------- /FIXED ----------
-
+            {{- tpl (toYaml .Values.envFrom) . | nindent 12 }}
           volumeMounts:
             - mountPath: {{ .Values.server.config.path }}
               name: config-volume
@@ -245,7 +232,6 @@ spec:
             - mountPath: {{ .Values.server.config.path }}/resource-groups
               name: resource-groups-volume
             {{- end }}
-
             {{- range .Values.configMounts }}
             - name: {{ .name }}
               mountPath: {{ .path }}
@@ -274,7 +260,6 @@ spec:
               subPath: {{ .subPath }}
               {{- end }}
             {{- end }}
-
             {{- if or .Values.auth.passwordAuth .Values.auth.passwordAuthSecret }}
             - mountPath: {{ .Values.server.config.path }}/auth/password
               name: file-password-authentication-volume
@@ -283,7 +268,8 @@ spec:
             - mountPath: {{ .Values.server.config.path }}/auth/group
               name: file-groups-authentication-volume
             {{- end }}
-
+            {{- with .Values.coordinator.additionalVolumeMounts }}
+            {{- . | toYaml | nindent 12 }}
             # ---------- Ranger mounts ----------
             {{- if $rangerEnabled }}
             - name: ranger-dir
@@ -327,7 +313,6 @@ spec:
             - name: hadoop-conf
               mountPath: {{ .Values.hadoopConf.mountPath | default "/etc/hadoop/conf" }}
             {{- end }}
-
           ports:
             - name: http
               containerPort: {{ .Values.service.port }}
