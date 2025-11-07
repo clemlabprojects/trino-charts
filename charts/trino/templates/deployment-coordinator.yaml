@@ -57,15 +57,9 @@ spec:
       shareProcessNamespace: {{ .Values.shareProcessNamespace.coordinator }}
       {{- end }}
       volumes:
-        {{- if $rangerEnabled }}
-        - name: ranger-dir
-          emptyDir: {}
-        {{- end }}
-
         - name: config-volume
           configMap:
             name: {{ template "trino.coordinator" . }}
-
         {{- if or .Values.catalogs .Values.additionalCatalogs }}
         - name: catalog-volume
           configMap:
@@ -125,31 +119,29 @@ spec:
           secret:
             secretName: {{ tpl .secretName $ }}
         {{- end }}
-        {{- with .Values.coordinator.additionalVolumes }}
-        {{- tpl (. | toYaml) $ | nindent 8 }}
+        {{- if $rangerEnabled }}
+        - name: ranger-dir
+          emptyDir: {}
+        {{- end }}
         # ---------- Ranger plugin files ----------
         {{- if $rangerEnabled }}
         - name: ranger-security
           configMap:
             # contains: ranger-trino-security.xml
             name: {{ required "ranger.securityConfigMapName is required when accessControl.type=ranger" .Values.ranger.securityConfigMapName }}
-
         - name: ranger-audit
           configMap:
             # contains: ranger-trino-audit.xml
             name: {{ required "ranger.auditConfigMapName is required when accessControl.type=ranger" .Values.ranger.auditConfigMapName }}
-
         {{- if .Values.ranger.admin.ssl.enabled }}
         - name: ranger-ssl
           configMap:
             # contains: ranger-policymgrssl-trino.xml
             name: {{ required "ranger.policymgrSslConfigMapName is required when ranger.admin.ssl.enabled" .Values.ranger.policymgrSslConfigMapName }}
-
         - name: ranger-truststore
           secret:
             # contains truststore binary under key: .Values.ranger.admin.ssl.truststore.fileKey
             secretName: {{ required "ranger.admin.ssl.truststore.secretName is required when ranger.admin.ssl.enabled" .Values.ranger.admin.ssl.truststore.secretName }}
-
         {{- if .Values.ranger.admin.ssl.mtls.enabled }}
         - name: ranger-mtls
           secret:
@@ -157,7 +149,6 @@ spec:
         {{- end }}
         {{- end }}
         {{- end }}
-
         # ---------- Hadoop configs (core-site.xml / hdfs-site.xml) ----------
         {{- if and .Values.hadoopConf.enabled .Values.hadoopConf.configMapName }}
         - name: hadoop-conf
@@ -169,16 +160,19 @@ spec:
           secret:
             secretName: {{ .Values.hadoopConf.secretName }}
         {{- end }}
+        {{- with .Values.coordinator.additionalVolumes }}
+        {{- tpl (. | toYaml) $ | nindent 8 }}
+        {{- end }}
       {{- if .Values.initContainers.coordinator }}
       initContainers:
-        {{- if $rangerEnabled }}
+      {{- if $rangerEnabled }}
         - name: init-ranger-dirs
           image: busybox:1.36
           command: ["sh","-c","mkdir -p /etc/trino/ranger/ssl"]
           volumeMounts:
             - name: ranger-dir
               mountPath: /etc/trino/ranger
-        {{- end }}
+      {{- end }}
       {{- tpl (toYaml .Values.initContainers.coordinator) . | nindent 6 }}
       {{- end }}
       {{- if .Values.imagePullSecrets}}
@@ -194,29 +188,6 @@ spec:
             {{- toYaml .Values.containerSecurityContext | nindent 12 }}
           env:
             {{- toYaml .Values.env | nindent 12 }}
-            {{- range $e := (default (list) .Values.env) }}
-            - name: {{ $e.name }}
-              {{- if $e.value }}
-              value: {{ $e.value | quote }}
-              {{- end }}
-              {{- if $e.valueFrom }}
-              valueFrom:
-                {{- toYaml $e.valueFrom | nindent 16 }}
-              {{- end }}
-            {{- end }}
-
-            {{- if and $rangerEnabled .Values.ranger.admin.ssl.enabled .Values.ranger.admin.ssl.truststore.passwordSecretName }}
-            - name: ranger.truststore.password
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.ranger.admin.ssl.truststore.passwordSecretName }}
-                  key:  {{ .Values.ranger.admin.ssl.truststore.passwordKey }}
-            {{- end }}
-
-            {{- if and .Values.hadoopConf.enabled .Values.hadoopConf.setEnv }}
-            - name: HADOOP_CONF_DIR
-              value: {{ .Values.hadoopConf.mountPath | default "/etc/hadoop/conf" }}
-            {{- end }}
           envFrom:
             {{- tpl (toYaml .Values.envFrom) . | nindent 12 }}
           volumeMounts:
@@ -228,6 +199,10 @@ spec:
             {{- end }}
             - mountPath: {{ .Values.kafka.mountPath }}
               name: schemas-volume
+            {{- if eq .Values.accessControl.type "configmap" }}
+            - mountPath: {{ .Values.server.config.path }}/access-control
+              name: access-control-volume
+            {{- end }}
             {{- if eq .Values.resourceGroups.type "configmap" }}
             - mountPath: {{ .Values.server.config.path }}/resource-groups
               name: resource-groups-volume
@@ -268,9 +243,7 @@ spec:
             - mountPath: {{ .Values.server.config.path }}/auth/group
               name: file-groups-authentication-volume
             {{- end }}
-            {{- with .Values.coordinator.additionalVolumeMounts }}
-            {{- . | toYaml | nindent 12 }}
-            # ---------- Ranger mounts ----------
+                        # ---------- Ranger mounts ----------
             {{- if $rangerEnabled }}
             - name: ranger-dir
               mountPath: /etc/trino/ranger
@@ -312,6 +285,9 @@ spec:
             {{- if and .Values.hadoopConf.enabled (or .Values.hadoopConf.configMapName .Values.hadoopConf.secretName) }}
             - name: hadoop-conf
               mountPath: {{ .Values.hadoopConf.mountPath | default "/etc/hadoop/conf" }}
+            {{- end }}
+            {{- with .Values.coordinator.additionalVolumeMounts }}
+            {{- . | toYaml | nindent 12 }}
             {{- end }}
           ports:
             - name: http
