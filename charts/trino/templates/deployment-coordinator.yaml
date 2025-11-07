@@ -43,17 +43,16 @@ spec:
         app.kubernetes.io/component: coordinator
         trino.io/network-policy-protection: {{ ternary "enabled" "disabled" .Values.networkPolicy.enabled }}
         {{- /* webhook labels from globals */ -}}
-        {{- $needs := default "security.clemlab.com/needs-keytab" .Values.global.security.admissionWebhook.injectKeytab.needsKeytabLabelKey -}}
-        {{- $svc   := default "security.clemlab.com/service"      .Values.global.security.admissionWebhook.injectKeytab.serviceLabelKey -}}
-        {{- if $needs }}
-        "{{ $needs }}": "true"
-        {{- end }}
-        {{- if $svc }}
-        "{{ $svc }}": {{ .Values.coordinator.serviceName | default "trino-coordinator" | quote }}
-        {{- end }}
-        {{- if .Values.coordinator.labels }}
-        {{- tpl (toYaml .Values.coordinator.labels) . | nindent 8 }}
-        {{- end }}
+        {{- $needsKey := default "security.clemlab.com/needs-keytab" .Values.global.security.admissionWebhook.injectKeytab.needsKeytabLabelKey -}}
+        {{- $svcKey   := default "security.clemlab.com/service"      .Values.global.security.admissionWebhook.injectKeytab.serviceLabelKey -}}
+        {{- $auto := dict -}}
+        {{- if $needsKey -}}
+        {{- $_ := set $auto $needsKey "true" -}}
+        {{- end -}}
+        {{- if $svcKey -}}
+        {{- $_ := set $auto $svcKey (printf "%s" (.Values.coordinator.serviceName | default "trino-coordinator")) -}}
+        {{- end -}}
+        {{- toYaml $auto | nindent 8 }}
     spec:
       serviceAccountName: {{ include "trino.serviceAccountName" . }}
       {{- with .Values.securityContext }}
