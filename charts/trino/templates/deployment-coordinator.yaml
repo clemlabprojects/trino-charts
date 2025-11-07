@@ -202,7 +202,16 @@ spec:
           securityContext:
             {{- toYaml .Values.containerSecurityContext | nindent 12 }}
           env:
-            {{- toYaml .Values.env | nindent 12 }}
+            {{- range $e := (default (list) .Values.env) }}
+            - name: {{ $e.name }}
+              {{- if $e.value }}
+              value: {{ $e.value | quote }}
+              {{- end }}
+              {{- if $e.valueFrom }}
+              valueFrom:
+                {{- toYaml $e.valueFrom | nindent 16 }}
+              {{- end }}
+            {{- end }}
 
             {{- if and $rangerEnabled .Values.ranger.admin.ssl.enabled .Values.ranger.admin.ssl.truststore.passwordSecretName }}
             - name: ranger.truststore.password
@@ -217,8 +226,11 @@ spec:
               value: {{ .Values.hadoopConf.mountPath | default "/etc/hadoop/conf" }}
             {{- end }}
 
+          {{- with .Values.envFrom }}
           envFrom:
-            {{- tpl (toYaml .Values.envFrom) . | nindent 12 }}
+            {{- tpl (toYaml .) $ | nindent 12 }}
+          {{- end }}
+          # --------- /FIXED ----------
 
           volumeMounts:
             - mountPath: {{ .Values.server.config.path }}
