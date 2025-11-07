@@ -46,6 +46,7 @@ spec:
         security.clemlab.com/service: trino-coordinator
         {{- if .Values.coordinator.labels }}
         {{- tpl (toYaml .Values.coordinator.labels) . | nindent 8 }}
+        {{- end }}
     spec:
       serviceAccountName: {{ include "trino.serviceAccountName" . }}
       {{- with .Values.securityContext }}
