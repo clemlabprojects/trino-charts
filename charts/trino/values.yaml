@@ -87,6 +87,7 @@ ranger:
   # All files in one ConfigMap created by Ambari View backend:
   #   - ranger-trino-security.xml
   #   - (optional) ranger-policymgr-ssl.xml  ← if you prefer keeping SSL XML separate, see below
+  auditConfigMapName: ranger-trino-audit
   securityConfigMapName: ranger-trino-plugin-properties
   # If you keep SSL XML separate from security XML, uncomment and use this instead:
   # sslConfigMapName: trino-ranger-ssl
