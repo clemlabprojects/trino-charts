@@ -42,17 +42,10 @@ spec:
         {{- include "trino.labels" . | nindent 8 }}
         app.kubernetes.io/component: coordinator
         trino.io/network-policy-protection: {{ ternary "enabled" "disabled" .Values.networkPolicy.enabled }}
-        {{- /* webhook labels from globals */ -}}
-        {{- $needsKey := default "security.clemlab.com/needs-keytab" .Values.global.security.admissionWebhook.injectKeytab.needsKeytabLabelKey -}}
-        {{- $svcKey   := default "security.clemlab.com/service"      .Values.global.security.admissionWebhook.injectKeytab.serviceLabelKey -}}
-        {{- $auto := dict -}}
-        {{- if $needsKey -}}
-        {{- $_ := set $auto $needsKey "true" -}}
-        {{- end -}}
-        {{- if $svcKey -}}
-        {{- $_ := set $auto $svcKey (printf "%s" (.Values.coordinator.serviceName | default "trino-coordinator")) -}}
-        {{- end -}}
-        {{- toYaml $auto | nindent 8 }}
+        security.clemlab.com/needs-keytab: "true"
+        security.clemlab.com/service: trino-coordinator
+        {{- if .Values.coordinator.labels }}
+        {{- tpl (toYaml .Values.coordinator.labels) . | nindent 8 }}
     spec:
       serviceAccountName: {{ include "trino.serviceAccountName" . }}
       {{- with .Values.securityContext }}

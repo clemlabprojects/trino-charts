@@ -45,10 +45,10 @@ spec:
       labels:
         {{- include "trino.labels" . | nindent 8 }}
         app.kubernetes.io/component: worker
+        security.clemlab.com/needs-keytab: "true"
+        security.clemlab.com/service: trino-worker
+        # security.clemlab.com/service: {{ template "trino.fullname" . }}-worker
         trino.io/network-policy-protection: {{ ternary "enabled" "disabled" .Values.networkPolicy.enabled }}
-        # --- keytab injection via global webhook label keys ---
-        {{ .Values.global.security.admissionWebhook.injectKeytab.needsKeytabLabelKey }}: "true"
-        {{ .Values.global.security.admissionWebhook.injectKeytab.serviceLabelKey }}: {{ .Values.worker.serviceName | default "trino-worker" | quote }}
         {{- if .Values.worker.labels }}
         {{- tpl (toYaml .Values.worker.labels) . | nindent 8 }}
         {{- end }}
