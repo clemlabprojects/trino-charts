@@ -106,7 +106,7 @@ data:
     {{- fail "ranger.serviceName is required when accessControl.type = 'ranger'." }}
     {{- end }}
     ranger.service.name={{ .Values.ranger.serviceName | quote }}
-    ranger.plugin.config.resource=/etc/trino/ranger/ranger-trino-security.xml{{- if .Values.ranger.admin.ssl.enabled }},/etc/trino/ranger/ranger-policymgr-ssl-trino.xml{{- end }}
+    ranger.plugin.config.resource=/etc/trino/ranger/ranger-trino-security.xml{{- if .Values.ranger.admin.ssl.enabled }},{{ .Values.ranger.policymgrssl_path }}{{- end }}
 
   {{- else }}
   {{- fail "Invalid accessControl.type. Must be one of: 'configmap', 'properties', or 'ranger'." }}

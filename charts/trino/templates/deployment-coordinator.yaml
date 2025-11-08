@@ -261,7 +261,7 @@ spec:
             {{- if .Values.ranger.admin.ssl.enabled }}
             # ranger-policymgr-ssl-trino.xml
             - name: ranger-ssl
-              mountPath: /etc/trino/ranger/ranger-policymgr-ssl-trino.xml
+              mountPath: {{ .Values.ranger.policymgrssl_path }}
               subPath: ranger-policymgr-ssl-trino.xml
 
             # truststore binary (key provided by values.ranger.admin.ssl.truststore.fileKey)
