@@ -105,7 +105,7 @@ data:
     {{- if not .Values.ranger.serviceName }}
     {{- fail "ranger.serviceName is required when accessControl.type = 'ranger'." }}
     {{- end }}
-    ranger.service.name={{ .Values.ranger.serviceName | quote }}
+    ranger.service.name={{ .Values.ranger.serviceName }}
     ranger.plugin.config.resource=/etc/trino/ranger/ranger-trino-security.xml{{- if .Values.ranger.admin.ssl.enabled }},{{ .Values.ranger.policymgrssl_path }}{{- end }}
 
   {{- else }}
