@@ -92,7 +92,10 @@ ranger:
   securityConfigMapName: ranger-trino-plugin-properties
   # If you keep SSL XML separate from security XML, uncomment and use this instead:
   # sslConfigMapName: trino-ranger-ssl
-
+  cred:
+    secretName: ranger-trino-plugin-credential-provider
+    providerPath: /etc/trino/ranger/cred
+    providerFile: cred.jceks
   admin:
     ssl:
       enabled: true

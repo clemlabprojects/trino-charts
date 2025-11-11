@@ -125,6 +125,12 @@ spec:
         {{- end }}
         # ---------- Ranger plugin files ----------
         {{- if $rangerEnabled }}
+        - name: ranger-cred
+          secret:
+            secretName: {{ .Values.ranger.cred.secretName }}   # e.g. trino-ranger-cred
+            items:
+              - key: {{ .Values.ranger.cred.providerFile }}
+                path: {{ .Values.ranger.cred.providerFile }}
         - name: ranger-security
           configMap:
             # contains: ranger-trino-security.xml
@@ -247,7 +253,9 @@ spec:
             {{- if $rangerEnabled }}
             - name: ranger-dir
               mountPath: /etc/trino/ranger
-
+            - name: ranger-cred
+              mountPath: {{ .Values.ranger.cred.providerPath }}
+              readOnly: true
             # ranger-trino-security.xml
             - name: ranger-security
               mountPath: /etc/trino/ranger/ranger-trino-security.xml
