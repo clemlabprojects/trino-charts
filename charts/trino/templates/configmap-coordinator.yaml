@@ -31,8 +31,6 @@ data:
     -XX:PerBytecodeRecompilationCutoff=10000
     -Djdk.attach.allowAttachSelf=true
     -Djdk.nio.maxCachedBufferSize=2000000
-    -Djavax.net.debug=ssl,handshake,x509
-    -Djava.security.debug=certpath
     # Allow loading dynamic agent used by JOL
     -XX:+EnableDynamicAgentLoading
   {{/* only check the version number if the image is not overriden in any way */}}
