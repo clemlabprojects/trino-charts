@@ -105,17 +105,11 @@ spec:
         {{- end }}
 
         # ---------- Hadoop configs (core-site.xml / hdfs-site.xml) ----------
-        {{- if and .Values.hadoopConf.enabled (or .Values.hadoopConf.configMapName .Values.hadoopConf.secretName) }}
+        {{- if and .Values.hadoopConf.enabled .Values.hadoopConf.configMapName }}
         - name: hadoop-conf
-          {{- if .Values.hadoopConf.secretName }}
-          secret:
-            secretName: {{ .Values.hadoopConf.secretName }}
-          {{- else }}
           configMap:
             name: {{ .Values.hadoopConf.configMapName }}
-          {{- end }}
         {{- end }}
-
         {{- with .Values.worker.additionalVolumes }}
         {{- tpl (. | toYaml) $ | nindent 8 }}
         {{- end }}
@@ -142,7 +136,7 @@ spec:
             {{- toYaml .Values.env | nindent 12 }}
             {{- if and .Values.hadoopConf.enabled .Values.hadoopConf.setEnv }}
             - name: HADOOP_CONF_DIR
-              value: {{ .Values.hadoopConf.mountPath | default "/etc/hadoop/conf" }}
+              value: /etc/hadoop/conf
             {{- end }}
           envFrom:
             {{- tpl (toYaml .Values.envFrom) . | nindent 12 }}

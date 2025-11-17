@@ -67,6 +67,9 @@ accessControl:
   # 'configmap' keeps your current behavior; set to 'ranger' to enable Ranger integration
   type: configmap # configmap | ranger - can be controlled by ambari's charts.json with dynamicValues
 
+## Clemlab edit from ambari
+## hadoopConf and ranger sections added for ranger integration are normalized and can be used in other
+## charts as well.
 # =========================
 # Hadoop client configuration (independent of Ranger)
 # =========================
