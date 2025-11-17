@@ -44,7 +44,9 @@ global:
       enabled: true
       # Single source of truth for realm
       realm: EXAMPLE.COM # can be controlled by ambari's charts.json with dynamicValues
-
+      configMapName: trino-krb5-conf
+      key: krb5.conf        # optional; defaults to "krb5.conf"
+      mountPath: /etc/krb5.conf
       # How the webhook builds the principal. We keep these here so Helm and
       # the webhook share the same assumptions.
       principalMode: headless        # service | headless | auto

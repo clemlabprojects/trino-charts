@@ -169,6 +169,16 @@ spec:
         {{- with .Values.coordinator.additionalVolumes }}
         {{- tpl (. | toYaml) $ | nindent 8 }}
         {{- end }}
+        {{- if and .Values.global.security.kerberos.enabled .Values.global.security.kerberos.configMapName }}
+        - name: krb5-conf
+          configMap:
+            name: {{ .Values.global.security.kerberos.configMapName }}
+            {{- if .Values.global.security.kerberos.key }}
+            items:
+              - key: {{ .Values.global.security.kerberos.key }}
+                path: krb5.conf
+            {{- end }}
+        {{- end }}
       {{- if .Values.initContainers.coordinator }}
       initContainers:
       {{- if $rangerEnabled }}
@@ -293,6 +303,13 @@ spec:
             {{- if and .Values.hadoopConf.enabled (or .Values.hadoopConf.configMapName .Values.hadoopConf.secretName) }}
             - name: hadoop-conf
               mountPath: {{ .Values.hadoopConf.mountPath | default "/etc/hadoop/conf" }}
+            {{- end }}
+            ## ---------- Kerberos krb5.conf mount ----------
+            {{- if and .Values.global.security.kerberos.enabled .Values.global.security.kerberos.configMapName }}
+            - name: krb5-conf
+              mountPath: {{ default "/etc/krb5.conf" .Values.global.security.kerberos.mountPath }}
+              subPath: {{ default "krb5.conf" .Values.global.security.kerberos.key }}
+              readOnly: true
             {{- end }}
             {{- with .Values.coordinator.additionalVolumeMounts }}
             {{- . | toYaml | nindent 12 }}
