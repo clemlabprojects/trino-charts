@@ -193,7 +193,7 @@ spec:
           securityContext:
             {{- toYaml .Values.containerSecurityContext | nindent 12 }}
           env:
-            {{- toYaml .Values.env | nindent 12 }}
+            {{- include "trino.env" . | nindent 10 }}
           envFrom:
             {{- tpl (toYaml .Values.envFrom) . | nindent 12 }}
           volumeMounts:

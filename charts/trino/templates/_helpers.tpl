@@ -162,3 +162,19 @@ Returns "true" when Ranger integration should be enabled (based on accessControl
 {{- define "trino.ranger.enabled" -}}
 {{- if eq (default "" .Values.accessControl.type) "ranger" -}}true{{- else -}}false{{- end -}}
 {{- end -}}
+
+{{/* Render env list safely, and append Hadoop conf var when requested */}}
+{{- define "trino.env" -}}
+{{- $base := default (list) .Values.env -}}
+{{- $addHadoop := and .Values.hadoopConf.enabled .Values.hadoopConf.setEnv -}}
+{{- if or (gt (len $base) 0) $addHadoop }}
+env:
+{{- if gt (len $base) 0 }}
+{{ toYaml $base | nindent 2 }}
+{{- end }}
+{{- if $addHadoop }}
+  - name: HADOOP_CONF_DIR
+    value: /etc/hadoop/conf
+{{- end }}
+{{- end }}
+{{- end }}

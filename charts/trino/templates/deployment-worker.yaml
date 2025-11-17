@@ -132,12 +132,7 @@ spec:
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           securityContext:
             {{- toYaml .Values.containerSecurityContext | nindent 12 }}
-          env:
-            {{- toYaml .Values.env | nindent 12 }}
-            {{- if and .Values.hadoopConf.enabled .Values.hadoopConf.setEnv }}
-            - name: HADOOP_CONF_DIR
-              value: /etc/hadoop/conf
-            {{- end }}
+          {{- include "trino.env" . | nindent 10 }}
           envFrom:
             {{- tpl (toYaml .Values.envFrom) . | nindent 12 }}
           volumeMounts:
