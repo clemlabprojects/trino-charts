@@ -107,7 +107,7 @@ data:
     {{- end }}
     ranger.service.name={{ .Values.ranger.serviceName }}
     ranger.plugin.config.resource=/etc/trino/ranger/ranger-trino-security.xml{{- if .Values.ranger.admin.ssl.enabled }},{{ .Values.ranger.policymgrssl_path }}{{- end }}
-
+    ranger.hadoop.config.resource=/etc/hadoop/conf/core-site.xml,/etc/hadoop/conf/hdfs-site.xml
   {{- else }}
   {{- fail "Invalid accessControl.type. Must be one of: 'configmap', 'properties', or 'ranger'." }}
   {{- end }}
