@@ -23,8 +23,7 @@ global:
   # already specify an explicit registry. Example: "registry.example.com/mirror"
   imageRegistry: ""
   # -- Extra imagePullSecrets applied cluster-wide in this chart (merged with .Values.imagePullSecrets)
-  imagePullSecrets:
-    - regcred
+  imagePullSecrets: []
   # -- Optional map to rewrite/override a registry hostname to another.
   # Useful when mirroring docker.io/quay.io/ghcr.io to an internal registry.
   # Key = original registry host, Value = replacement host (with optional path).
