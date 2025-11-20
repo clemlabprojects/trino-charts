@@ -203,14 +203,22 @@ release: {{ .Release.Name }}
 {{- end -}}
 {{- end -}}
 
-{{/* Merge imagePullSecrets: global + local (optional, easy win) */}}
+{{/* Merge imagePullSecrets: global + local */}}
 {{- define "superset.imagePullSecrets" -}}
 {{- $list := list -}}
 {{- range (default (list) .Values.global.imagePullSecrets) }}
-  {{- $list = append $list (dict "name" .) -}}
+  {{- if kindIs "string" . -}}
+    {{- $list = append $list (dict "name" .) -}}
+  {{- else -}}
+    {{- $list = append $list . -}}
+  {{- end -}}
 {{- end -}}
 {{- range (default (list) .Values.imagePullSecrets) }}
-  {{- $list = append $list (dict "name" .) -}}
+  {{- if kindIs "string" . -}}
+    {{- $list = append $list (dict "name" .) -}}
+  {{- else -}}
+    {{- $list = append $list . -}}
+  {{- end -}}
 {{- end -}}
 {{- if gt (len $list) 0 -}}
 {{- toYaml $list -}}
