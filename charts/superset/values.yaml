@@ -21,7 +21,7 @@
 global:
   # -- If set, this registry/hostname is prepended to every image that does not
   # already specify an explicit registry. Example: "registry.example.com/mirror"
-  imageRegistry: ""
+  imageRegistry: "registry.clemlab.com/clemlabprojects"
   # -- Extra imagePullSecrets applied cluster-wide in this chart (merged with .Values.imagePullSecrets)
   imagePullSecrets: []
   # -- Optional map to rewrite/override a registry hostname to another.
