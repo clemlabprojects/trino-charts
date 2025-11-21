@@ -21,9 +21,9 @@ global:
 
 image:
   # -- Image registry, defaults to empty, which results in DockerHub usage
-  registry: "registry.clemlab.com/clemlabprojects"
+  registry: ""
   # -- Repository location of the Trino image, typically `organization/imagename`
-  repository: ""
+  repository: "trino"
   # -- Image tag, defaults to the Trino release version specified as `appVersion` from Chart.yaml
   tag: "476.1.3.1.0-174"
   # -- Optional digest value of the image specified as `sha256:abcd...`. A specified value overrides `tag`.
