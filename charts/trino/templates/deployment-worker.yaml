@@ -138,7 +138,7 @@ spec:
       {{- end }}
       containers:
         - name: {{ .Chart.Name }}-worker
-          image: {{ include "trino.image" . }}
+          image: {{ include "trino.image" (dict "root" . "image" .Values.image) }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           securityContext:
             {{- toYaml .Values.containerSecurityContext | nindent 12 }}

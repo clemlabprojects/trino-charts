@@ -15,6 +15,9 @@
 nameOverride:
 coordinatorNameOverride:
 workerNameOverride:
+global:
+  imageRegistry: "registry.clemlab.com/clemlabprojects"
+  imagePullSecrets: []
 
 image:
   # -- Image registry, defaults to empty, which results in DockerHub usage

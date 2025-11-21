@@ -103,24 +103,42 @@ Return the proper image name
 Code is inspired from bitnami/common
 
 */}}
+{{/*
+Return the proper image name
+{{ include "trino.image" (dict "root" . "image" .Values.image) }}
+*/}}
 {{- define "trino.image" -}}
-{{- $repositoryName := .Values.image.repository -}}
-{{- if .Values.image.useRepositoryAsSoleImageReference -}}
-  {{- printf "%s" $repositoryName -}}
+{{- $globalReg := .root.Values.global.imageRegistry | default "" -}}
+{{- $img       := .image -}}
+{{- $reg       := $img.registry                      | default "" -}}
+{{- $repo      := $img.repository                    | default "" -}}
+{{- $tag       := $img.tag                           | default (default "" .root.Chart.AppVersion) -}}
+{{- $digest    := $img.digest                        | default "" -}}
+{{- $sole      := $img.useRepositoryAsSoleImageReference | default false -}}
+
+{{- /* Logic 1: If useRepositoryAsSoleImageReference is true, just return repository */ -}}
+{{- if $sole -}}
+  {{- printf "%s" $repo -}}
+
+{{- /* Logic 2: Normal construction */ -}}
 {{- else -}}
-  {{- $repositoryName := .Values.image.repository -}}
-  {{- $registryName := .Values.image.registry -}}
-  {{- $separator := ":" -}}
-  {{- $termination := (default .Chart.AppVersion .Values.image.tag) | toString -}}
-  {{- if .Values.image.digest }}
-    {{- $separator = "@" -}}
-    {{- $termination = .Values.image.digest | toString -}}
+  
+  {{- /* Determine registry prefix: local > global > empty */ -}}
+  {{- $prefix := (default $reg $globalReg) -}}
+  
+  {{- /* Build the base part (registry/repo) */ -}}
+  {{- $base := $repo -}}
+  {{- if ne $prefix "" -}}
+    {{- $base = printf "%s/%s" $prefix $repo -}}
   {{- end -}}
-  {{- if $registryName }}
-    {{- printf "%s/%s%s%s" $registryName $repositoryName $separator $termination -}}
+
+  {{- /* Append tag or digest */ -}}
+  {{- if $digest -}}
+    {{- printf "%s@%s" $base $digest -}}
   {{- else -}}
-    {{- printf "%s%s%s"  $repositoryName $separator $termination -}}
+    {{- printf "%s:%s" $base (default "latest" $tag) -}}
   {{- end -}}
+
 {{- end -}}
 {{- end -}}
 

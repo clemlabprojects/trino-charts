@@ -198,7 +198,7 @@ spec:
       terminationGracePeriodSeconds: {{ .Values.coordinator.terminationGracePeriodSeconds }}
       containers:
         - name: {{ .Chart.Name }}-coordinator
-          image: {{ include "trino.image" . }}
+          image: {{ include "trino.image" (dict "root" . "image" .Values.image) }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           securityContext:
             {{- toYaml .Values.containerSecurityContext | nindent 12 }}
