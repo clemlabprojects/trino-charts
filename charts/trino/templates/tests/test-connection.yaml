@@ -28,7 +28,7 @@ spec:
   {{- end }}
   containers:
     - name: cli
-      image: {{ include "trino.image" . }}
+      image: "{{ include "trino.image" (dict "root" . "image" .Values.image) }}"
       command: ['trino']
       args:
     {{- if .Values.server.config.https.enabled }}
