@@ -18,14 +18,14 @@ spec:
   containers:
     {{- if $coordinatorJmx.exporter.enabled }}
     - name: trino-jmx-coordinator
-      image: {{ include "trino.image" . }}
+      image: "{{ include "trino.image" (dict "root" . "image" .Values.image) }}"
       command: ["/bin/bash", "-c"]
       args:
         - curl -s {{ include "trino.fullname" . }}.{{ .Release.Namespace }}:{{ $coordinatorJmx.exporter.port }}/metrics | grep -q trino
     {{- end }}
     {{- if $workerJmx.exporter.port }}
     - name: trino-jmx-worker
-      image: {{ include "trino.image" . }}
+      image: "{{ include "trino.image" (dict "root" . "image" .Values.image) }}"
       command: ["/bin/bash", "-c"]
       args:
         - curl -s {{ include "trino.fullname" . }}-worker.{{ .Release.Namespace }}:{{ $workerJmx.exporter.port }}/metrics | grep -q trino

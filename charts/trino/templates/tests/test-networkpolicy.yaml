@@ -13,7 +13,7 @@ metadata:
 spec:
   containers:
     - name: check-connection
-      image: {{ include "trino.image" . }}
+      image: "{{ include "trino.image" (dict "root" . "image" .Values.image) }}"
       command: [ "/bin/bash", "-c" ]
       args:
         - >-
