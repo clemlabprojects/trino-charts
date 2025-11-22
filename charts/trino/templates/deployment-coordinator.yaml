@@ -122,6 +122,10 @@ spec:
         {{- if $rangerEnabled }}
         - name: ranger-dir
           emptyDir: {}
+        {{- if .Values.ranger.policyCacheDir }}
+        - name: ranger-policy-cache
+          emptyDir: {}
+        {{- end }}
         {{- end }}
         # ---------- Ranger plugin files ----------
         {{- if $rangerEnabled }}
@@ -263,6 +267,10 @@ spec:
             {{- if $rangerEnabled }}
             - name: ranger-dir
               mountPath: /etc/trino/ranger
+            {{- if .Values.ranger.policyCacheDir }}
+            - name: ranger-policy-cache
+              mountPath: {{ .Values.ranger.policyCacheDir }}
+            {{- end }}
             - name: ranger-cred
               mountPath: {{ .Values.ranger.cred.providerPath }}
               readOnly: true
