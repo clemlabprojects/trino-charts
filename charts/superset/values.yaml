@@ -820,7 +820,7 @@ postgresql:
     database: superset
 
   image:
-    tag: "14.6.0-debian-11-r13"
+    tag: "sha256-08780248063bce1755a5a375940bab3fafed837a82da94f563e5b50d4dd9f032"
 
   ## PostgreSQL Primary parameters
   primary:
