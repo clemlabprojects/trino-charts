@@ -46,6 +46,17 @@ jobs:
           echo "chart_version=${CHART_VERSION}" >> "$GITHUB_OUTPUT"
           echo "Chart: ${CHART_NAME}  Version: ${CHART_VERSION}"
 
+      # Login for helm registry (no secrets printed)
+      - name: Login to Harbor OCI registry (via helm)
+        env:
+          HARBOR_USER: ${{ secrets.HARBOR_ROBOT_USERNAME }}     # robot$clemlabprojects+github.actions.clemlabprojects.trino-charts
+          HARBOR_PASS: ${{ secrets.ACTIONS_CLEMLABPROJECTS }}   # robot token/password
+        run: |
+          echo "${{ secrets.ACTIONS_CLEMLABPROJECTS }}" > /tmp/credential.txt
+          cat /tmp/credential.txt
+          helm registry login 'registry.clemlab.com' --username 'robot$clemlabprojects+github.actions.clemlabprojects.trino-charts' --password-stdin < /tmp/credential.txt
+
+
       - name: Helm dependency update (if any)
         run: helm dependency update "${CHART_DIR}"
 
@@ -56,16 +67,6 @@ jobs:
         run: |
           mkdir -p dist
           helm package "${CHART_DIR}" -d dist
-
-      # Login for helm registry (no secrets printed)
-      - name: Login to Harbor OCI registry (via helm)
-        env:
-          HARBOR_USER: ${{ secrets.HARBOR_ROBOT_USERNAME }}     # robot$clemlabprojects+github.actions.clemlabprojects.trino-charts
-          HARBOR_PASS: ${{ secrets.ACTIONS_CLEMLABPROJECTS }}   # robot token/password
-        run: |
-          echo "${{ secrets.ACTIONS_CLEMLABPROJECTS }}" > /tmp/credential.txt
-          cat /tmp/credential.txt
-          helm registry login 'registry.clemlab.com' --username 'robot$clemlabprojects+github.actions.clemlabprojects.trino-charts' --password-stdin < /tmp/credential.txt
 
 
       # Docker login helps some helm push/pull edge cases with Harbor
