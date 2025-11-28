@@ -5,15 +5,15 @@ annotations:
   images: |
     - name: kubectl
       # Change docker.io/bitnami to your registry path
-      image: registry.clemlab.com/clemlabprojects/bitnami/kubectl:sha256-00889941b4b46ce0422810f9cd24333f3881ba2cc2d7766f331d4d8505f9d4c7
+      image: registry.clemlab.com/clemlabprojects/bitnami/kubectl:1.33.4-clemlab-1
     - name: os-shell
-      image: registry.clemlab.com/clemlabprojects/bitnami/os-shell:sha256-028f4ddeecd0edbe82884513e2bd14268fdc8b04899a826bd840521949700857
+      image: registry.clemlab.com/clemlabprojects/bitnami/os-shell:12-clemlab-1
     - name: redis
-      image: registry.clemlab.com/clemlabprojects/bitnami/redis:sha256-142ab4d0c251bcf5466fffd33766350af718a6725cb926710be19fad00b2b035
+      image: registry.clemlab.com/clemlabprojects/bitnami/redis:7.4.1-clemlab-1
     - name: redis-exporter
-      image: registry.clemlab.com/clemlabprojects/bitnami/redis-exporter:sha256-00b07536265276c1c04be9072fadb8bd0a096579b1bee5b5d95922111b4983e1
+      image: registry.clemlab.com/clemlabprojects/bitnami/redis-exporter:1.76.0-clemlab-1
     - name: redis-sentinel
-      image: registry.clemlab.com/clemlabprojects/bitnami/redis-sentinel:sha256-311b86a979d47c0358692f66d0455e3a9621127da1cac1db7b88f8dfa3ef3f14
+      image: registry.clemlab.com/clemlabprojects/bitnami/redis-sentinel:8.2.1-clemlab-1
   licenses: Apache-2.0
   tanzuCategory: service
 apiVersion: v2

@@ -4,11 +4,11 @@
 annotations:
   images: |
     - name: os-shell
-      image: registry.clemlab.com/clemlabprojects/bitnami/os-shell:sha256-028f4ddeecd0edbe82884513e2bd14268fdc8b04899a826bd840521949700857
+      image: registry.clemlab.com/clemlabprojects/bitnami/os-shell:12-clemlab-1
     - name: postgres-exporter
       image: registry.clemlab.com/clemlabprojects/bitnami/postgres-exporter:sha256-237c2cfa887e9cb25e44a1334dc16d680f2c5d18987c36bc0684b35af1f703ea
     - name: postgresql
-      image: registry.clemlab.com/clemlabprojects/bitnami/postgresql:sha256-08780248063bce1755a5a375940bab3fafed837a82da94f563e5b50d4dd9f032
+      image: registry.clemlab.com/clemlabprojects/bitnami/postgresql:17.6.0-clemlab-1
   licenses: Apache-2.0
   tanzuCategory: service
 apiVersion: v2

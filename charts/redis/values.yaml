@@ -114,9 +114,9 @@ diagnosticMode:
 ## @param image.debug Enable image debug mode
 ##
 image:
-  registry: docker.io
+  registry: registry.clemlab.com/clemlabprojects
   repository: bitnami/redis
-  tag: sha256-142ab4d0c251bcf5466fffd33766350af718a6725cb926710be19fad00b2b035
+  tag: 7.4.1-clemlab-1
   digest: ""
   ## Specify a imagePullPolicy
   ## ref: https://kubernetes.io/docs/concepts/containers/images/#pre-pulled-images
@@ -1188,7 +1188,7 @@ sentinel:
   image:
     registry: docker.io
     repository: bitnami/redis-sentinel
-    tag: sha256-311b86a979d47c0358692f66d0455e3a9621127da1cac1db7b88f8dfa3ef3f14
+    tag: 8.2.1-clemlab-1
     digest: ""
     ## Specify a imagePullPolicy
     ## ref: https://kubernetes.io/docs/concepts/containers/images/#pre-pulled-images
@@ -1787,7 +1787,7 @@ metrics:
   image:
     registry: docker.io
     repository: bitnami/redis-exporter
-    tag: sha256-00b07536265276c1c04be9072fadb8bd0a096579b1bee5b5d95922111b4983e1
+    tag: 1.76.0-clemlab-1
     digest: ""
     pullPolicy: IfNotPresent
     ## Optionally specify an array of imagePullSecrets.
@@ -2165,7 +2165,7 @@ volumePermissions:
   image:
     registry: docker.io
     repository: bitnami/os-shell
-    tag: sha256-028f4ddeecd0edbe82884513e2bd14268fdc8b04899a826bd840521949700857
+    tag: 12-clemlab-1
     digest: ""
     pullPolicy: IfNotPresent
     ## Optionally specify an array of imagePullSecrets.
@@ -2229,7 +2229,7 @@ kubectl:
   image:
     registry: docker.io
     repository: bitnami/kubectl
-    tag: sha256-00889941b4b46ce0422810f9cd24333f3881ba2cc2d7766f331d4d8505f9d4c7
+    tag: 1.33.4-clemlab-1
     digest: ""
     ## Specify a imagePullPolicy
     ## ref: https://kubernetes.io/docs/concepts/containers/images/#pre-pulled-images
@@ -2298,7 +2298,7 @@ sysctl:
   image:
     registry: docker.io
     repository: bitnami/os-shell
-    tag: sha256-028f4ddeecd0edbe82884513e2bd14268fdc8b04899a826bd840521949700857
+    tag: 12-clemlab-1
     digest: ""
     pullPolicy: IfNotPresent
     ## Optionally specify an array of imagePullSecrets.
