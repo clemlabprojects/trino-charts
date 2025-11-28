@@ -19,7 +19,7 @@ apiVersion: v2
 appVersion: 8.2.1
 dependencies:
 - name: common
-  repository: oci://registry-1.docker.io/bitnamicharts
+  repository: oci://registry.clemlab.com/clemlabprojects/charts
   tags:
   - bitnami-common
   version: 2.x.x
@@ -33,9 +33,10 @@ keywords:
 - keyvalue
 - database
 maintainers:
-- name: Broadcom, Inc. All Rights Reserved.
-  url: https://github.com/bitnami/charts
+- name: clemlab
+  email: odp@clemlab.com
+  url: https://github.com/clemlabprojects/trinodb-helm-charts
 name: redis
 sources:
-- https://github.com/bitnami/charts/tree/main/bitnami/redis
+- https://github.com/clemlabprojects/trinodb-helm-charts/tree/main/charts/redis
 version: 23.0.4

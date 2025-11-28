@@ -26,9 +26,6 @@ keywords:
 sources:
   - https://github.com/apache/superset
 maintainers:
-  - name: craig-rueda
-    email: craig@craigrueda.com
-    url: https://github.com/craig-rueda
   - name: clemlab
     email: odp@clemlab.com
     url: https://github.com/clemlabprojects/trinodb-helm-charts
