@@ -33,7 +33,7 @@ jobs:
           version: v3.19.0
 
       - name: Install yq
-        uses: mikefarah/yq@v4.48.1
+        uses: mikefarah/yq@v4.49.2
 
       - name: Extract chart name & version
         id: meta
