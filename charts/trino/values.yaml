@@ -59,6 +59,13 @@ global:
         mountPath: /etc/security/keytabs
         secretDataKey: service.keytab
 
+    # Labels the webhook uses (don’t change unless you changed the webhook env)
+    admissionWebhook:
+      injectKeytab:
+        enabled: true
+        needsKeytabLabelKey: security.clemlab.com/needs-keytab
+        serviceLabelKey: security.clemlab.com/service
+
     tls:
       enabled: false
       truststore:
@@ -73,12 +80,6 @@ global:
           pathEnv: TRUSTSTORE_PATH
           passwordEnv: TRUSTSTORE_PASSWORD
 
-    # Labels the webhook uses (don’t change unless you changed the webhook env)
-    admissionWebhook:
-      injectKeytab:
-        enabled: true
-        needsKeytabLabelKey: security.clemlab.com/needs-keytab
-        serviceLabelKey: security.clemlab.com/service
 
 accessControl:
   # 'configmap' keeps your current behavior; set to 'ranger' to enable Ranger integration

@@ -33,6 +33,14 @@ global:
   #     ghcr.io:   registry.example.com/ghcr
   registryOverrides: {}
   security:
+
+    # Labels the webhook uses (don’t change unless you changed the webhook env)
+    admissionWebhook:
+      injectKeytab:
+        enabled: true
+        needsKeytabLabelKey: security.clemlab.com/needs-keytab
+        serviceLabelKey: security.clemlab.com/service
+
     kerberos:
       enabled: true
       # Single source of truth for realm
@@ -54,6 +62,19 @@ global:
       # Label the webhook uses to build the service principal; keep in sync with pod label
       serviceLabel: superset-dashboard
 
+      # Optional kinit sidecar to keep Kerberos tickets fresh (main dashboard pod only)
+      kinitSidecar:
+        enabled: true
+        principal: ""              # if empty, derived as <serviceLabel>-<namespace>@<realm>
+        intervalSeconds: 3600      # how often to renew
+        cacheDir: /var/run/krb5
+        cacheFile: /var/run/krb5/krb5cc_superset
+        image:
+          repository: ""           # empty -> reuse main superset image
+          tag: ""                  # empty -> reuse main superset image tag
+          pullPolicy: IfNotPresent
+        extraArgs: []              # additional args to append after kinit command
+
     tls:
       enabled: false
       truststore:
@@ -72,24 +93,6 @@ global:
         env:
         pathEnv: TRUSTSTORE_PATH
         passwordEnv: TRUSTSTORE_PASSWORD
-
-    # Labels the webhook uses (don’t change unless you changed the webhook env)
-    admissionWebhook:
-      injectKeytab:
-        enabled: true
-        needsKeytabLabelKey: security.clemlab.com/needs-keytab
-        serviceLabelKey: security.clemlab.com/service
-
-    # Optional kinit sidecar to keep Kerberos tickets fresh (main dashboard pod only)
-    kinitSidecar:
-      enabled: false
-      principal: ""              # if empty, derived as <serviceLabel>-<namespace>@<realm>
-      intervalSeconds: 3600      # how often to renew
-      image:
-        repository: ""           # empty -> reuse main superset image
-        tag: ""                  # empty -> reuse main superset image tag
-        pullPolicy: IfNotPresent
-      extraArgs: []              # additional args to append after kinit command
 
 # A README is automatically generated from this file to document it, using helm-docs (see https://github.com/norwoodj/helm-docs)
 # To update it, install helm-docs and run helm-docs from the root of this chart
