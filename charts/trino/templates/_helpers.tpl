@@ -195,7 +195,8 @@ Returns "true" when Ranger integration should be enabled (based on accessControl
 {{- end }}
 {{- if $addTls }}
 - name: {{ default "TRUSTSTORE_PATH" .Values.global.security.tls.env.pathEnv | quote }}
-  value: {{ default "/etc/security/truststore/truststore.jks" .Values.global.security.tls.mountPath | quote }}
+  value: {{ ternary "/etc/security/truststore/ca.crt" (default "/etc/security/truststore/truststore.jks" .Values.global.security.tls.mountPath) (eq (default "jks" .Values.global.security.tls.truststore.format | lower) "pem") | quote }}
+{{- if ne (default "jks" .Values.global.security.tls.truststore.format | lower) "pem" }}
 - name: {{ default "TRUSTSTORE_PASSWORD" .Values.global.security.tls.env.passwordEnv | quote }}
   valueFrom:
     secretKeyRef:
@@ -203,12 +204,13 @@ Returns "true" when Ranger integration should be enabled (based on accessControl
       key: {{ default "truststore.password" .Values.global.security.tls.truststorePasswordKey }}
 {{- end }}
 {{- end }}
+{{- end }}
 {{/* Truststore helpers (mount) */}}
 {{- define "trino.truststore.volumeMount" -}}
 {{- if and .Values.global.security.tls.enabled .Values.global.security.tls.truststore.enabled .Values.global.security.tls.truststoreSecret }}
 - name: truststore
-  mountPath: {{ default "/etc/security/truststore/truststore.jks" .Values.global.security.tls.mountPath | quote }}
-  subPath: {{ default "truststore.jks" .Values.global.security.tls.truststoreKey | quote }}
+  mountPath: {{ ternary "/etc/security/truststore/ca.crt" (default "/etc/security/truststore/truststore.jks" .Values.global.security.tls.mountPath) (eq (default "jks" .Values.global.security.tls.truststore.format | lower) "pem") | quote }}
+  subPath: {{ ternary (default "ca.crt" .Values.global.security.tls.truststore.pemKey) (default "truststore.jks" .Values.global.security.tls.truststoreKey) (eq (default "jks" .Values.global.security.tls.truststore.format | lower) "pem") | quote }}
   readOnly: true
 {{- end }}
 {{- end }}
@@ -218,10 +220,8 @@ Returns "true" when Ranger integration should be enabled (based on accessControl
 - name: truststore
   secret:
     secretName: {{ .Values.global.security.tls.truststoreSecret }}
-    {{- if .Values.global.security.tls.truststoreKey }}
     items:
-      - key: {{ .Values.global.security.tls.truststoreKey }}
-        path: {{ .Values.global.security.tls.truststoreKey }}
-    {{- end }}
+      - key: {{ ternary (default "ca.crt" .Values.global.security.tls.truststore.pemKey) (default "truststore.jks" .Values.global.security.tls.truststoreKey) (eq (default "jks" .Values.global.security.tls.truststore.format | lower) "pem") }}
+        path: {{ ternary (default "ca.crt" .Values.global.security.tls.truststore.pemKey) (default "truststore.jks" .Values.global.security.tls.truststoreKey) (eq (default "jks" .Values.global.security.tls.truststore.format | lower) "pem") }}
 {{- end }}
 {{- end }}

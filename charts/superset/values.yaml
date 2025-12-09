@@ -55,15 +55,18 @@ global:
       enabled: false
       truststore:
         enabled: false
-      # Secret that contains the truststore artifacts (populated by Ambari View backend)
-      truststoreSecret: ""
-      # Key names inside the Secret
-      truststoreKey: truststore.jks
-      truststorePasswordKey: truststore.password
-      # Where to mount the truststore file in the container
-      mountPath: /etc/security/truststore/truststore.jks
-      # Expose path/password via env for clients (JVMs can use JAVA_TOOL_OPTIONS)
-      env:
+        # format: jks | pem
+        format: pem
+        # Secret that contains the truststore artifacts (populated by Ambari View backend)
+        truststoreSecret: ""
+        # Key names inside the Secret
+        truststoreKey: truststore.jks
+        pemKey: ca.crt
+        truststorePasswordKey: truststore.password
+        # Where to mount the truststore file in the container
+        mountPath: /etc/security/truststore/truststore.jks
+        # Expose path/password via env for clients (JVMs can use JAVA_TOOL_OPTIONS)
+        env:
         pathEnv: TRUSTSTORE_PATH
         passwordEnv: TRUSTSTORE_PASSWORD
 

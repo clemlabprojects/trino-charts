@@ -63,13 +63,15 @@ global:
       enabled: false
       truststore:
         enabled: false
-      truststoreSecret: ""
-      truststoreKey: truststore.jks
-      truststorePasswordKey: truststore.password
-      mountPath: /etc/security/truststore/truststore.jks
-      env:
-        pathEnv: TRUSTSTORE_PATH
-        passwordEnv: TRUSTSTORE_PASSWORD
+        format: jks    # jks | pem
+        truststoreSecret: ""
+        truststoreKey: truststore.jks
+        pemKey: ca.crt
+        truststorePasswordKey: truststore.password
+        mountPath: /etc/security/truststore/truststore.jks
+        env:
+          pathEnv: TRUSTSTORE_PATH
+          passwordEnv: TRUSTSTORE_PASSWORD
 
     # Labels the webhook uses (don’t change unless you changed the webhook env)
     admissionWebhook:

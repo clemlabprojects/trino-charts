@@ -165,23 +165,20 @@ release: {{ .Release.Name }}
 {{/* Common truststore snippets for TLS-enabled workloads */}}
 {{- define "superset.truststore.env" -}}
 {{- if and .Values.global.security.tls.enabled .Values.global.security.tls.truststore.enabled .Values.global.security.tls.truststoreSecret }}
-- name: {{ default "TRUSTSTORE_PATH" .Values.global.security.tls.env.pathEnv | quote }}
-  value: {{ default "/etc/security/truststore/truststore.jks" .Values.global.security.tls.mountPath | quote }}
-- name: {{ default "TRUSTSTORE_PASSWORD" .Values.global.security.tls.env.passwordEnv | quote }}
-  valueFrom:
-    secretKeyRef:
-      name: {{ .Values.global.security.tls.truststoreSecret }}
-      key: {{ default "truststore.password" .Values.global.security.tls.truststorePasswordKey }}
+{{- $tls := .Values.global.security.tls | default dict -}}
+{{- $env := $tls.env | default dict -}}
+{{- $pathEnv := default "TRUSTSTORE_PATH" $env.pathEnv -}}
+{{- $mountPath := default "/etc/security/truststore/ca.crt" $tls.mountPath -}}
+- name: {{ $pathEnv | quote }}
+  value: {{ $mountPath | quote }}
 {{- end }}
 {{- end }}
 
 {{- define "superset.truststore.volumeMount" -}}
-{{- if and .Values.global.security.tls.enabled .Values.global.security.tls.truststore.enabled .Values.global.security.tls.truststoreSecret }}
 - name: truststore
-  mountPath: {{ default "/etc/security/truststore/truststore.jks" .Values.global.security.tls.mountPath | quote }}
-  subPath: {{ default "truststore.jks" .Values.global.security.tls.truststoreKey | quote }}
+  mountPath: {{ default "/etc/security/truststore/ca.crt" .Values.global.security.tls.mountPath | quote }}
+  subPath: {{ default "ca.crt" .Values.global.security.tls.truststore.pemKey | quote }}
   readOnly: true
-{{- end }}
 {{- end }}
 
 {{- define "superset.truststore.volume" -}}
@@ -189,11 +186,9 @@ release: {{ .Release.Name }}
 - name: truststore
   secret:
     secretName: {{ .Values.global.security.tls.truststoreSecret }}
-    {{- if .Values.global.security.tls.truststoreKey }}
     items:
-      - key: {{ .Values.global.security.tls.truststoreKey }}
-        path: {{ .Values.global.security.tls.truststoreKey }}
-    {{- end }}
+      - key: {{ default "ca.crt" .Values.global.security.tls.truststore.pemKey }}
+        path: {{ default "ca.crt" .Values.global.security.tls.truststore.pemKey }}
 {{- end }}
 {{- end }}
 

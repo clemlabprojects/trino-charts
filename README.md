@@ -98,3 +98,10 @@ you [install the pre-commit binary](https://pre-commit.com/#install), then run:
 pre-commit install
 pre-commit install-hooks
 ```
+
+## Truststore provisioning
+
+- Superset (Python): truststore mounts as PEM only. Enable with `global.security.tls.truststore.enabled=true` (format is fixed to PEM). Mounted at `/etc/security/truststore/ca.crt`.
+- Trino (JVM): truststore supports JKS or PEM. Enable with `global.security.tls.truststore.enabled=true` and choose `global.security.tls.truststore.format` = `jks` (default) or `pem`.
+- Scheduler/backend: auto-creates `<release>-truststore` from Ambari truststore (includes `truststore.jks`, `truststore.password`, `ca.crt`) and injects Helm overrides. Wire service.json to set the truststore flags/format if you want per-service control.
+
