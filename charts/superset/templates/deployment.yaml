@@ -160,6 +160,40 @@ spec:
             {{- else }}
               {{- toYaml .Values.resources | nindent 12 }}
             {{- end }}
+        {{- $kerb := .Values.global.security.kerberos | default dict -}}
+        {{- $kinit := $kerb.kinitSidecar | default dict -}}
+        {{- if and $kerb.enabled $kinit.enabled }}
+        - name: kinit-renew
+          image: {{- /* reuse override if provided, else main superset image */ -}}
+            {{- $img := $kinit.image | default dict -}}
+            {{- if or $img.repository $img.tag }}
+              {{- printf "%s:%s" (default (printf "%s/%s" .Values.image.registry .Values.image.repository | trimPrefix "/") $img.repository) (default .Values.image.tag $img.tag) | quote -}}
+            {{- else -}}
+              {{ include "superset.image" (dict "root" . "image" .Values.image) | quote }}
+            {{- end }}
+          imagePullPolicy: {{ default .Values.image.pullPolicy $img.pullPolicy }}
+          command:
+            - /bin/sh
+            - -c
+            - >
+              svc={{ default "superset-dashboard" .Values.global.security.kerberos.serviceLabel }};
+              ns={{ .Release.Namespace }};
+              realm={{ default "EXAMPLE.COM" .Values.global.security.kerberos.realm }};
+              princ={{ default "" .Values.global.security.kerberos.kinitSidecar.principal }};
+              [ -z "$princ" ] && princ="${svc}-${ns}@${realm}";
+              while true; do
+                kinit -kt {{ printf "%s/%s" (default "/etc/security/keytabs" .Values.global.security.kerberos.keytab.mountPath) (default "service.keytab" .Values.global.security.kerberos.keytab.secretDataKey) }} "$princ" {{- if .Values.global.security.kerberos.kinitSidecar.extraArgs }} {{ join " " .Values.global.security.kerberos.kinitSidecar.extraArgs }}{{- end }} && \
+                sleep {{ default 3600 .Values.global.security.kerberos.kinitSidecar.intervalSeconds }};
+              done
+          volumeMounts:
+            {{ include "superset.truststore.volumeMount" . | nindent 12 }}
+            {{- if and .Values.global.security.kerberos.enabled .Values.global.security.kerberos.configMapName }}
+            - name: krb5-conf
+              mountPath: {{ default "/etc/krb5.conf" .Values.global.security.kerberos.mountPath }}
+              subPath: {{ default "krb5.conf" .Values.global.security.kerberos.key }}
+              readOnly: true
+            {{- end }}
+        {{- end }}
         {{- if .Values.supersetNode.extraContainers }}
           {{- toYaml .Values.supersetNode.extraContainers | nindent 8 }}
         {{- end }}

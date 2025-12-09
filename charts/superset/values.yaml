@@ -51,6 +51,9 @@ global:
         mountPath: /etc/security/keytabs
         secretDataKey: service.keytab
 
+      # Label the webhook uses to build the service principal; keep in sync with pod label
+      serviceLabel: superset-dashboard
+
     tls:
       enabled: false
       truststore:
@@ -76,6 +79,17 @@ global:
         enabled: true
         needsKeytabLabelKey: security.clemlab.com/needs-keytab
         serviceLabelKey: security.clemlab.com/service
+
+    # Optional kinit sidecar to keep Kerberos tickets fresh (main dashboard pod only)
+    kinitSidecar:
+      enabled: false
+      principal: ""              # if empty, derived as <serviceLabel>-<namespace>@<realm>
+      intervalSeconds: 3600      # how often to renew
+      image:
+        repository: ""           # empty -> reuse main superset image
+        tag: ""                  # empty -> reuse main superset image tag
+        pullPolicy: IfNotPresent
+      extraArgs: []              # additional args to append after kinit command
 
 # A README is automatically generated from this file to document it, using helm-docs (see https://github.com/norwoodj/helm-docs)
 # To update it, install helm-docs and run helm-docs from the root of this chart
