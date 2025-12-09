@@ -65,6 +65,9 @@ spec:
         {{- end }}
       labels:
         app: {{ template "superset.name" . }}
+        app.kubernetes.io/component: dashboard
+        security.clemlab.com/needs-keytab: "true"
+        security.clemlab.com/service: superset-dashboard
         release: {{ .Release.Name }}
         {{- if .Values.supersetNode.podLabels }}
           {{- toYaml .Values.supersetNode.podLabels | nindent 8 }}
@@ -129,6 +132,13 @@ spec:
             {{- with .Values.extraVolumeMounts }}
               {{- tpl (toYaml .) $ | nindent 12 -}}
             {{- end }}
+            ## ---------- Kerberos krb5.conf mount ----------
+            {{- if and .Values.global.security.kerberos.enabled .Values.global.security.kerberos.configMapName }}
+            - name: krb5-conf
+              mountPath: {{ default "/etc/krb5.conf" .Values.global.security.kerberos.mountPath }}
+              subPath: {{ default "krb5.conf" .Values.global.security.kerberos.key }}
+              readOnly: true
+            {{- end }}
           ports:
             - name: http
               containerPort: {{ .Values.service.port }}
@@ -189,4 +199,14 @@ spec:
         {{- end }}
         {{- with .Values.extraVolumes }}
           {{- tpl (toYaml .) $ | nindent 8 -}}
+        {{- end }}
+        {{- if and .Values.global.security.kerberos.enabled .Values.global.security.kerberos.configMapName }}
+        - name: krb5-conf
+          configMap:
+            name: {{ .Values.global.security.kerberos.configMapName }}
+            {{- if .Values.global.security.kerberos.key }}
+            items:
+              - key: {{ .Values.global.security.kerberos.key }}
+                path: krb5.conf
+            {{- end }}
         {{- end }}

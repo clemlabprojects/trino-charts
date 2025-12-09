@@ -32,6 +32,31 @@ global:
   #     docker.io: registry.example.com/dockerhub
   #     ghcr.io:   registry.example.com/ghcr
   registryOverrides: {}
+  security:
+    kerberos:
+      enabled: true
+      # Single source of truth for realm
+      realm: EXAMPLE.COM # can be controlled by ambari's charts.json with dynamicValues
+      configMapName: superset-krb5-conf
+      key: krb5.conf        # optional; defaults to "krb5.conf"
+      mountPath: /etc/krb5.conf
+      # How the webhook builds the principal. We keep these here so Helm and
+      # the webhook share the same assumptions.
+      principalMode: headless        # service | headless | auto
+      principalFqdnMode: namespace   # pod | namespace
+      principalTemplate: "{service}/{fqdn}@{realm}"  # only used when principalMode=service/auto
+
+      # Where the webhook mounts the keytab + how the Secret stores the data
+      keytab:
+        mountPath: /etc/security/keytabs
+        secretDataKey: service.keytab
+
+    # Labels the webhook uses (don’t change unless you changed the webhook env)
+    admissionWebhook:
+      injectKeytab:
+        enabled: true
+        needsKeytabLabelKey: security.clemlab.com/needs-keytab
+        serviceLabelKey: security.clemlab.com/service
 
 # A README is automatically generated from this file to document it, using helm-docs (see https://github.com/norwoodj/helm-docs)
 # To update it, install helm-docs and run helm-docs from the root of this chart
