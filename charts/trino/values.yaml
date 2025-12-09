@@ -15,10 +15,6 @@
 nameOverride:
 coordinatorNameOverride:
 workerNameOverride:
-global:
-  imageRegistry: "registry.clemlab.com/clemlabprojects"
-  imagePullSecrets: []
-
 image:
   # -- Image registry, defaults to empty, which results in DockerHub usage
   registry: ""
@@ -42,6 +38,8 @@ image:
 imagePullSecrets: []
 
 global:
+  imageRegistry: "registry.clemlab.com/clemlabprojects"
+  imagePullSecrets: []
   security:
     kerberos:
       enabled: true
@@ -60,6 +58,18 @@ global:
       keytab:
         mountPath: /etc/security/keytabs
         secretDataKey: service.keytab
+
+    tls:
+      enabled: false
+      truststore:
+        enabled: false
+      truststoreSecret: ""
+      truststoreKey: truststore.jks
+      truststorePasswordKey: truststore.password
+      mountPath: /etc/security/truststore/truststore.jks
+      env:
+        pathEnv: TRUSTSTORE_PATH
+        passwordEnv: TRUSTSTORE_PASSWORD
 
     # Labels the webhook uses (don’t change unless you changed the webhook env)
     admissionWebhook:

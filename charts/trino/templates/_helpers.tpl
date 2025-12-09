@@ -185,14 +185,43 @@ Returns "true" when Ranger integration should be enabled (based on accessControl
 {{- define "trino.env" -}}
 {{- $base := default (list) .Values.env -}}
 {{- $addHadoop := and .Values.hadoopConf.enabled .Values.hadoopConf.setEnv -}}
-{{- if or (gt (len $base) 0) $addHadoop }}
-env:
+{{- $addTls := and .Values.global.security.tls.enabled .Values.global.security.tls.truststore.enabled .Values.global.security.tls.truststoreSecret -}}
 {{- if gt (len $base) 0 }}
-{{ toYaml $base | nindent 2 }}
+{{ toYaml $base | nindent 0 }}
 {{- end }}
 {{- if $addHadoop }}
-  - name: HADOOP_CONF_DIR
-    value: /etc/hadoop/conf
+- name: HADOOP_CONF_DIR
+  value: /etc/hadoop/conf
 {{- end }}
+{{- if $addTls }}
+- name: {{ default "TRUSTSTORE_PATH" .Values.global.security.tls.env.pathEnv | quote }}
+  value: {{ default "/etc/security/truststore/truststore.jks" .Values.global.security.tls.mountPath | quote }}
+- name: {{ default "TRUSTSTORE_PASSWORD" .Values.global.security.tls.env.passwordEnv | quote }}
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.global.security.tls.truststoreSecret }}
+      key: {{ default "truststore.password" .Values.global.security.tls.truststorePasswordKey }}
+{{- end }}
+{{- end }}
+{{/* Truststore helpers (mount) */}}
+{{- define "trino.truststore.volumeMount" -}}
+{{- if and .Values.global.security.tls.enabled .Values.global.security.tls.truststore.enabled .Values.global.security.tls.truststoreSecret }}
+- name: truststore
+  mountPath: {{ default "/etc/security/truststore/truststore.jks" .Values.global.security.tls.mountPath | quote }}
+  subPath: {{ default "truststore.jks" .Values.global.security.tls.truststoreKey | quote }}
+  readOnly: true
+{{- end }}
+{{- end }}
+
+{{- define "trino.truststore.volume" -}}
+{{- if and .Values.global.security.tls.enabled .Values.global.security.tls.truststore.enabled .Values.global.security.tls.truststoreSecret }}
+- name: truststore
+  secret:
+    secretName: {{ .Values.global.security.tls.truststoreSecret }}
+    {{- if .Values.global.security.tls.truststoreKey }}
+    items:
+      - key: {{ .Values.global.security.tls.truststoreKey }}
+        path: {{ .Values.global.security.tls.truststoreKey }}
+    {{- end }}
 {{- end }}
 {{- end }}

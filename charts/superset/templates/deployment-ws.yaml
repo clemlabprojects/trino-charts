@@ -86,6 +86,7 @@ spec:
             {{- if .Values.extraEnvRaw }}
               {{- toYaml .Values.extraEnvRaw | nindent 12 }}
             {{- end }}
+            {{ include "superset.truststore.env" . | nindent 12 }}
           envFrom:
             - secretRef:
                 name: {{ tpl .Values.envFromSecret . | quote }}
@@ -102,6 +103,7 @@ spec:
               mountPath: /home/superset-websocket/config.json
               subPath: config.json
               readOnly: true
+            {{ include "superset.truststore.volumeMount" . | nindent 12 }}
           resources:
             {{- if .Values.supersetWebsockets.resources }}
               {{- toYaml .Values.supersetWebsockets.resources | nindent 12 }}
@@ -151,4 +153,5 @@ spec:
         - name: superset-ws-config
           secret:
             secretName: "{{ template "superset.fullname" . }}-ws-config"
+        {{ include "superset.truststore.volume" . | nindent 8 }}
 {{- end }}

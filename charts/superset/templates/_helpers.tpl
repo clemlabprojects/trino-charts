@@ -162,6 +162,41 @@ app: {{ include "superset.name" . }}-worker
 release: {{ .Release.Name }}
 {{- end }}
 
+{{/* Common truststore snippets for TLS-enabled workloads */}}
+{{- define "superset.truststore.env" -}}
+{{- if and .Values.global.security.tls.enabled .Values.global.security.tls.truststore.enabled .Values.global.security.tls.truststoreSecret }}
+- name: {{ default "TRUSTSTORE_PATH" .Values.global.security.tls.env.pathEnv | quote }}
+  value: {{ default "/etc/security/truststore/truststore.jks" .Values.global.security.tls.mountPath | quote }}
+- name: {{ default "TRUSTSTORE_PASSWORD" .Values.global.security.tls.env.passwordEnv | quote }}
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.global.security.tls.truststoreSecret }}
+      key: {{ default "truststore.password" .Values.global.security.tls.truststorePasswordKey }}
+{{- end }}
+{{- end }}
+
+{{- define "superset.truststore.volumeMount" -}}
+{{- if and .Values.global.security.tls.enabled .Values.global.security.tls.truststore.enabled .Values.global.security.tls.truststoreSecret }}
+- name: truststore
+  mountPath: {{ default "/etc/security/truststore/truststore.jks" .Values.global.security.tls.mountPath | quote }}
+  subPath: {{ default "truststore.jks" .Values.global.security.tls.truststoreKey | quote }}
+  readOnly: true
+{{- end }}
+{{- end }}
+
+{{- define "superset.truststore.volume" -}}
+{{- if and .Values.global.security.tls.enabled .Values.global.security.tls.truststore.enabled .Values.global.security.tls.truststoreSecret }}
+- name: truststore
+  secret:
+    secretName: {{ .Values.global.security.tls.truststoreSecret }}
+    {{- if .Values.global.security.tls.truststoreKey }}
+    items:
+      - key: {{ .Values.global.security.tls.truststoreKey }}
+        path: {{ .Values.global.security.tls.truststoreKey }}
+    {{- end }}
+{{- end }}
+{{- end }}
+
 {{- define "superset.image" -}}
 {{- $globalReg := .root.Values.global.imageRegistry | default "" -}}
 {{- $img       := .image -}}

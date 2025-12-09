@@ -113,6 +113,7 @@ spec:
             {{- if .Values.extraEnvRaw }}
               {{- toYaml .Values.extraEnvRaw | nindent 12 }}
             {{- end }}
+            {{ include "superset.truststore.env" . | nindent 12 }}
           envFrom:
             - secretRef:
                 name: {{ tpl .Values.envFromSecret . | quote }}
@@ -132,6 +133,7 @@ spec:
             {{- with .Values.extraVolumeMounts }}
               {{- tpl (toYaml .) $ | nindent 12 -}}
             {{- end }}
+            {{ include "superset.truststore.volumeMount" . | nindent 12 }}
             ## ---------- Kerberos krb5.conf mount ----------
             {{- if and .Values.global.security.kerberos.enabled .Values.global.security.kerberos.configMapName }}
             - name: krb5-conf
@@ -200,6 +202,7 @@ spec:
         {{- with .Values.extraVolumes }}
           {{- tpl (toYaml .) $ | nindent 8 -}}
         {{- end }}
+        {{ include "superset.truststore.volume" . | nindent 8 }}
         {{- if and .Values.global.security.kerberos.enabled .Values.global.security.kerberos.configMapName }}
         - name: krb5-conf
           configMap:

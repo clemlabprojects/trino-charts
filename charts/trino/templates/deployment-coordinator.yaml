@@ -170,6 +170,7 @@ spec:
           secret:
             secretName: {{ .Values.hadoopConf.secretName }}
         {{- end }}
+        {{ include "trino.truststore.volume" . | nindent 8 }}
         {{- with .Values.coordinator.additionalVolumes }}
         {{- tpl (. | toYaml) $ | nindent 8 }}
         {{- end }}
@@ -207,7 +208,7 @@ spec:
           securityContext:
             {{- toYaml .Values.containerSecurityContext | nindent 12 }}
           env:
-            {{- include "trino.env" . | nindent 10 }}
+            {{- include "trino.env" . | nindent 12 }}
           envFrom:
             {{- tpl (toYaml .Values.envFrom) . | nindent 12 }}
           volumeMounts:
@@ -312,6 +313,7 @@ spec:
             - name: hadoop-conf
               mountPath: {{ .Values.hadoopConf.mountPath | default "/etc/hadoop/conf" }}
             {{- end }}
+            {{ include "trino.truststore.volumeMount" . | nindent 12 }}
             ## ---------- Kerberos krb5.conf mount ----------
             {{- if and .Values.global.security.kerberos.enabled .Values.global.security.kerberos.configMapName }}
             - name: krb5-conf

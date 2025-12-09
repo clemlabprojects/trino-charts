@@ -51,6 +51,22 @@ global:
         mountPath: /etc/security/keytabs
         secretDataKey: service.keytab
 
+    tls:
+      enabled: false
+      truststore:
+        enabled: false
+      # Secret that contains the truststore artifacts (populated by Ambari View backend)
+      truststoreSecret: ""
+      # Key names inside the Secret
+      truststoreKey: truststore.jks
+      truststorePasswordKey: truststore.password
+      # Where to mount the truststore file in the container
+      mountPath: /etc/security/truststore/truststore.jks
+      # Expose path/password via env for clients (JVMs can use JAVA_TOOL_OPTIONS)
+      env:
+        pathEnv: TRUSTSTORE_PATH
+        passwordEnv: TRUSTSTORE_PASSWORD
+
     # Labels the webhook uses (don’t change unless you changed the webhook env)
     admissionWebhook:
       injectKeytab:

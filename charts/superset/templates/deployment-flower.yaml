@@ -85,6 +85,7 @@ spec:
             {{- if .Values.extraEnvRaw }}
               {{- toYaml .Values.extraEnvRaw | nindent 12 }}
             {{- end }}
+            {{ include "superset.truststore.env" . | nindent 12 }}
           envFrom:
             - secretRef:
                 name: {{ tpl .Values.envFromSecret . | quote }}
@@ -103,6 +104,7 @@ spec:
             {{- with .Values.extraVolumeMounts }}
               {{- tpl (toYaml .) $ | nindent 12 -}}
             {{- end }}
+            {{ include "superset.truststore.volumeMount" . | nindent 12 }}
           {{- if .Values.supersetCeleryFlower.startupProbe }}
           startupProbe: {{- .Values.supersetCeleryFlower.startupProbe | toYaml | nindent 12 }}
           {{- end }}
@@ -155,4 +157,5 @@ spec:
         {{- with .Values.extraVolumes }}
           {{- tpl (toYaml .) $ | nindent 8 -}}
         {{- end }}
+        {{ include "superset.truststore.volume" . | nindent 8 }}
 {{- end -}}
