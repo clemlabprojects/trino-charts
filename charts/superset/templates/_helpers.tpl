@@ -192,6 +192,7 @@ release: {{ .Release.Name }}
 {{- end }}
 {{- end }}
 
+
 {{/* Kerberos helpers: simple and explicit */}}
 
 {{- define "superset.kerberos.env" -}}
@@ -251,14 +252,13 @@ release: {{ .Release.Name }}
 {{- $kerb   := $sec.kerberos | default dict -}}
 {{- $kinit  := $kerb.kinitSidecar | default dict -}}
 {{- if $kerb.enabled }}
+{{- $img := $kinit.image | default dict -}}
 - name: kinit-renew
-  image:
-    {{- $img := $kinit.image | default dict -}}
-    {{- if or $img.repository $img.tag }}
-      {{- printf "%s:%s" (default (printf "%s/%s" .Values.image.registry .Values.image.repository | trimPrefix "/") $img.repository) (default .Values.image.tag $img.tag) | quote -}}
-    {{- else -}}
-      {{ include "superset.image" (dict "root" . "image" .Values.image) | quote }}
-    {{- end }}
+  {{- if or $img.repository $img.tag }}
+  image: {{ printf "%s:%s" (default .Values.image.repository $img.repository) (default .Values.image.tag $img.tag) | quote }}
+  {{- else }}
+  image: {{ include "superset.image" (dict "root" . "image" .Values.image) | quote }}
+  {{- end }}
   imagePullPolicy: {{ default .Values.image.pullPolicy $img.pullPolicy }}
   command:
     - /bin/sh
@@ -271,7 +271,7 @@ release: {{ .Release.Name }}
       princ={{ default "" $kinit.principal }};
       [ -z "$princ" ] && princ="${svc}-${ns}@${realm}";
       while true; do
-        kinit -kt {{ printf "%s/%s" (default "/etc/security/keytabs" $kerb.keytab.mountPath) (default "service.keytab" $kerb.keytab.secretDataKey) }} "$princ" {{- if $kinit.extraArgs }} {{ join " " $kinit.extraArgs }}{{- end }} && \
+        kinit -kt {{ printf "%s/%s" (default "/etc/security/keytabs" $kerb.keytab.mountPath) (default "service.keytab" $kerb.keytab.secretDataKey) }} "$princ"{{- if $kinit.extraArgs }} {{ join " " $kinit.extraArgs }}{{- end }} && \
         sleep {{ default 3600 $kinit.intervalSeconds }};
       done
   volumeMounts:
@@ -288,6 +288,7 @@ release: {{ .Release.Name }}
     {{- end }}
 {{- end }}
 {{- end }}
+
 {{- define "superset.image" -}}
 {{- $globalReg := .root.Values.global.imageRegistry | default "" -}}
 {{- $img       := .image -}}
