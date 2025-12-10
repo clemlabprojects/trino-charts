@@ -192,71 +192,67 @@ release: {{ .Release.Name }}
 {{- end }}
 {{- end }}
 
-{{/* Kerberos helpers to avoid nil-pointer issues and keep defaults applied */}}
-{{- define "superset.kerberos.state" -}}
-{{- $kerb := .Values.global.security.kerberos | default dict -}}
-{{- $kinit := $kerb.kinitSidecar | default dict -}}
-{{- $cacheDir := default "/var/run/krb5" $kinit.cacheDir -}}
-{{- $cacheFile := default "/var/run/krb5/krb5cc_superset" $kinit.cacheFile -}}
-{{- dict "kerb" $kerb "kinit" $kinit "cacheDir" $cacheDir "cacheFile" $cacheFile -}}
-{{- end }}
+{{/* Kerberos helpers: simple and explicit */}}
 
 {{- define "superset.kerberos.env" -}}
-{{- $st := include "superset.kerberos.state" . | fromYaml -}}
-{{- $kerb := $st.kerb -}}
-{{- $kinit := $st.kinit -}}
-{{- $cacheFile := $st.cacheFile -}}
+{{- $global := .Values.global | default dict -}}
+{{- $sec    := $global.security | default dict -}}
+{{- $kerb   := $sec.kerberos | default dict -}}
+{{- $kinit  := $kerb.kinitSidecar | default dict -}}
 {{- if $kerb.enabled }}
 - name: KRB5CCNAME
-  value: {{ $cacheFile | quote }}
+  value: {{ default "/var/run/krb5/krb5cc_superset" $kinit.cacheFile | quote }}
 {{- end }}
 {{- end }}
 
 {{- define "superset.kerberos.volumeMounts" -}}
-{{- $st := include "superset.kerberos.state" . | fromYaml -}}
-{{- $kerb := $st.kerb -}}
-{{- $kinit := $st.kinit -}}
-{{- if and $kerb.enabled $kerb.configMapName }}
+{{- $global := .Values.global | default dict -}}
+{{- $sec    := $global.security | default dict -}}
+{{- $kerb   := $sec.kerberos | default dict -}}
+{{- $kinit  := $kerb.kinitSidecar | default dict -}}
+{{- if $kerb.enabled }}
+  {{- if $kerb.configMapName }}
 - name: krb5-conf
   mountPath: {{ default "/etc/krb5.conf" $kerb.mountPath }}
   subPath: {{ default "krb5.conf" $kerb.key }}
   readOnly: true
-{{- end }}
-{{- if and $kerb.enabled $kinit.cacheDir }}
+  {{- end }}
+  {{- if $kinit.cacheDir }}
 - name: krb5-cache
   mountPath: {{ $kinit.cacheDir }}
+  {{- end }}
 {{- end }}
 {{- end }}
 
 {{- define "superset.kerberos.volumes" -}}
-{{- $st := include "superset.kerberos.state" . | fromYaml -}}
-{{- $kerb := $st.kerb -}}
-{{- $kinit := $st.kinit -}}
-{{- if and $kerb.enabled $kerb.configMapName }}
+{{- $global := .Values.global | default dict -}}
+{{- $sec    := $global.security | default dict -}}
+{{- $kerb   := $sec.kerberos | default dict -}}
+{{- $kinit  := $kerb.kinitSidecar | default dict -}}
+{{- if $kerb.enabled }}
+  {{- if $kerb.configMapName }}
 - name: krb5-conf
   configMap:
     name: {{ $kerb.configMapName }}
-    {{- if $kerb.key }}
     items:
-      - key: {{ $kerb.key }}
+      - key: {{ default "krb5.conf" $kerb.key }}
         path: krb5.conf
-    {{- end }}
-{{- end }}
-{{- if and $kerb.enabled $kinit.cacheDir }}
+  {{- end }}
+  {{- if $kinit.cacheDir }}
 - name: krb5-cache
   emptyDir: {}
+  {{- end }}
 {{- end }}
 {{- end }}
 
 {{- define "superset.kerberos.sidecar" -}}
-{{- $st := include "superset.kerberos.state" . | fromYaml -}}
-{{- $kerb := $st.kerb -}}
-{{- $kinit := $st.kinit -}}
-{{- $cacheFile := $st.cacheFile -}}
-{{- $cacheDir := $st.cacheDir -}}
+{{- $global := .Values.global | default dict -}}
+{{- $sec    := $global.security | default dict -}}
+{{- $kerb   := $sec.kerberos | default dict -}}
+{{- $kinit  := $kerb.kinitSidecar | default dict -}}
 {{- if $kerb.enabled }}
 - name: kinit-renew
-  image: {{- /* reuse override if provided, else main superset image */ -}}
+  image:
     {{- $img := $kinit.image | default dict -}}
     {{- if or $img.repository $img.tag }}
       {{- printf "%s:%s" (default (printf "%s/%s" .Values.image.registry .Values.image.repository | trimPrefix "/") $img.repository) (default .Values.image.tag $img.tag) | quote -}}
@@ -268,7 +264,7 @@ release: {{ .Release.Name }}
     - /bin/sh
     - -c
     - >
-      export KRB5CCNAME={{ default "/var/run/krb5/krb5cc_superset" $cacheFile }};
+      export KRB5CCNAME={{ default "/var/run/krb5/krb5cc_superset" $kinit.cacheFile }};
       svc={{ default "superset-dashboard" $kerb.serviceLabel }};
       ns={{ .Release.Namespace }};
       realm={{ default "EXAMPLE.COM" $kerb.realm }};
@@ -280,19 +276,18 @@ release: {{ .Release.Name }}
       done
   volumeMounts:
     {{ include "superset.truststore.volumeMount" . | nindent 4 }}
-    {{- if and $kerb.enabled $kerb.configMapName }}
+    {{- if $kerb.configMapName }}
     - name: krb5-conf
       mountPath: {{ default "/etc/krb5.conf" $kerb.mountPath }}
       subPath: {{ default "krb5.conf" $kerb.key }}
       readOnly: true
     {{- end }}
-    {{- if and $kerb.enabled $cacheDir }}
+    {{- if $kinit.cacheDir }}
     - name: krb5-cache
-      mountPath: {{ $cacheDir }}
+      mountPath: {{ $kinit.cacheDir }}
     {{- end }}
 {{- end }}
 {{- end }}
-
 {{- define "superset.image" -}}
 {{- $globalReg := .root.Values.global.imageRegistry | default "" -}}
 {{- $img       := .image -}}
