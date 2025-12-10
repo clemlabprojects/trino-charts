@@ -171,6 +171,27 @@ data:
     file.password-file={{ .Values.server.config.path }}/auth/password/password.db
   {{- end }}{{- end }}
 
+  {{- if eq .Values.server.config.authenticationType "LDAP" }}
+  ldap.properties: |
+    ldap.url={{ .Values.global.security.auth.ldap.url }}
+    ldap.user-bind-pattern={{ .Values.global.security.auth.ldap.userDnTemplate }}
+    ldap.user-base-dn={{ .Values.global.security.auth.ldap.baseDn }}
+    ldap.group-authentication="${TRINO_LDAP_GROUP_SEARCH_FILTER:-{{ .Values.global.security.auth.ldap.groupSearchFilter }}}"
+  {{- end }}
+
+  {{- if eq .Values.server.config.authenticationType "OIDC" }}
+  oidc.properties: |
+    http-server.authentication.type=OIDC
+    http-server.authentication.oauth2.issuer={{ .Values.global.security.auth.oidc.issuerUrl }}
+    http-server.authentication.oauth2.client-id={{ .Values.global.security.auth.oidc.clientId }}
+    http-server.authentication.oauth2.client-secret={{ .Values.global.security.auth.oidc.clientSecret }}
+    http-server.authentication.oauth2.scopes={{ .Values.global.security.auth.oidc.scopes }}
+    http-server.authentication.oauth2.principal-field={{ .Values.global.security.auth.oidc.userClaim }}
+    http-server.authentication.oauth2.user-mapping.pattern={{ .Values.global.security.auth.oidc.groupsClaim }}
+    http-server.authentication.oauth2.audience={{ .Values.global.security.auth.oidc.clientId }}
+    http-server.authentication.oauth2.enabled=true
+  {{- end }}
+
   {{- if or .Values.auth.groups .Values.auth.groupsAuthSecret }}{{- if not (index .Values.coordinator.additionalConfigFiles "group-provider.properties") }}
   group-provider.properties: |
     group-provider.name=file

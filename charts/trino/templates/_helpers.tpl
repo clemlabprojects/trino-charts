@@ -62,6 +62,65 @@ Create chart name and version as used by the chart label.
 {{ template "trino.fullname" . }}-catalog
 {{- end -}}
 
+{{/* Security profile wiring: map global.security.auth.* to Trino config/environment */}}
+{{- define "trino.security.env" -}}
+{{- $auth := .Values.global.security.auth | default dict -}}
+{{- if $auth.mode }}
+- name: TRINO_SECURITY_MODE
+  value: {{ $auth.mode | quote }}
+{{- if eq $auth.mode "ldap" }}
+- name: TRINO_LDAP_URL
+  value: {{ $auth.ldap.url | quote }}
+- name: TRINO_LDAP_USER_BIND
+  value: {{ $auth.ldap.bindDn | quote }}
+- name: TRINO_LDAP_PASSWORD
+  value: {{ $auth.ldap.bindPassword | quote }}
+- name: TRINO_LDAP_USER_DN_TEMPLATE
+  value: {{ $auth.ldap.userDnTemplate | quote }}
+- name: TRINO_LDAP_BASE_DN
+  value: {{ $auth.ldap.baseDn | quote }}
+- name: TRINO_LDAP_GROUP_SEARCH_BASE
+  value: {{ $auth.ldap.groupSearchBase | quote }}
+- name: TRINO_LDAP_GROUP_SEARCH_FILTER
+  value: {{ $auth.ldap.groupSearchFilter | quote }}
+{{- end }}
+{{- if eq $auth.mode "ad" }}
+- name: TRINO_AD_URL
+  value: {{ $auth.ad.url | quote }}
+- name: TRINO_AD_BASE_DN
+  value: {{ $auth.ad.baseDn | quote }}
+- name: TRINO_AD_BIND_DN
+  value: {{ $auth.ad.bindDn | quote }}
+- name: TRINO_AD_BIND_PASSWORD
+  value: {{ $auth.ad.bindPassword | quote }}
+- name: TRINO_AD_USER_SEARCH_FILTER
+  value: {{ $auth.ad.userSearchFilter | quote }}
+- name: TRINO_AD_DOMAIN
+  value: {{ $auth.ad.domain | quote }}
+{{- end }}
+{{- if eq $auth.mode "oidc" }}
+- name: TRINO_OIDC_ISSUER
+  value: {{ $auth.oidc.issuerUrl | quote }}
+- name: TRINO_OIDC_CLIENT_ID
+  value: {{ $auth.oidc.clientId | quote }}
+- name: TRINO_OIDC_CLIENT_SECRET
+  value: {{ $auth.oidc.clientSecret | quote }}
+- name: TRINO_OIDC_SCOPES
+  value: {{ $auth.oidc.scopes | quote }}
+- name: TRINO_OIDC_REDIRECT_URI
+  value: {{ $auth.oidc.redirectUri | quote }}
+- name: TRINO_OIDC_USER_CLAIM
+  value: {{ $auth.oidc.userClaim | quote }}
+- name: TRINO_OIDC_GROUPS_CLAIM
+  value: {{ $auth.oidc.groupsClaim | quote }}
+- name: TRINO_OIDC_SKIP_TLS_VERIFY
+  value: {{ $auth.oidc.skipTlsVerify | default false | quote }}
+- name: TRINO_OIDC_CA_SECRET
+  value: {{ $auth.oidc.caSecret | quote }}
+{{- end }}
+{{- end }}
+{{- end -}}
+
 {{/*
 Common labels
 */}}

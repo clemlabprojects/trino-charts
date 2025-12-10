@@ -25,6 +25,71 @@ Expand the name of the chart.
   {{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
 
+{{/* Security profile wiring: expose auth settings as env vars for Superset to consume in custom config */}}
+{{- define "superset.security.env" -}}
+{{- $auth := .Values.global.security.auth | default dict -}}
+{{- if $auth.mode }}
+- name: SECURITY_AUTH_MODE
+  value: {{ $auth.mode | quote }}
+{{- if eq $auth.mode "ldap" }}
+- name: SECURITY_LDAP_URL
+  value: {{ $auth.ldap.url | quote }}
+- name: SECURITY_LDAP_BIND_DN
+  value: {{ $auth.ldap.bindDn | quote }}
+- name: SECURITY_LDAP_BIND_PASSWORD
+  value: {{ $auth.ldap.bindPassword | quote }}
+{{- end }}
+{{- if or (eq $auth.mode "ldap") (eq $auth.mode "ad") }}
+- name: SECURITY_LDAP_USER_DN_TEMPLATE
+  value: {{ $auth.ldap.userDnTemplate | quote }}
+- name: SECURITY_LDAP_BASE_DN
+  value: {{ $auth.ldap.baseDn | quote }}
+- name: SECURITY_LDAP_GROUP_SEARCH_BASE
+  value: {{ $auth.ldap.groupSearchBase | quote }}
+- name: SECURITY_LDAP_GROUP_SEARCH_FILTER
+  value: {{ $auth.ldap.groupSearchFilter | quote }}
+- name: SECURITY_LDAP_REFERRAL
+  value: {{ $auth.ldap.referral | quote }}
+- name: SECURITY_LDAP_STARTTLS
+  value: {{ $auth.ldap.startTls | default false | quote }}
+{{- end }}
+{{- if eq $auth.mode "ad" }}
+- name: SECURITY_AD_URL
+  value: {{ $auth.ad.url | quote }}
+- name: SECURITY_AD_BASE_DN
+  value: {{ $auth.ad.baseDn | quote }}
+- name: SECURITY_AD_BIND_DN
+  value: {{ $auth.ad.bindDn | quote }}
+- name: SECURITY_AD_BIND_PASSWORD
+  value: {{ $auth.ad.bindPassword | quote }}
+- name: SECURITY_AD_USER_SEARCH_FILTER
+  value: {{ $auth.ad.userSearchFilter | quote }}
+- name: SECURITY_AD_DOMAIN
+  value: {{ $auth.ad.domain | quote }}
+{{- end }}
+{{- if eq $auth.mode "oidc" }}
+- name: SECURITY_OIDC_ISSUER
+  value: {{ $auth.oidc.issuerUrl | quote }}
+- name: SECURITY_OIDC_CLIENT_ID
+  value: {{ $auth.oidc.clientId | quote }}
+- name: SECURITY_OIDC_CLIENT_SECRET
+  value: {{ $auth.oidc.clientSecret | quote }}
+- name: SECURITY_OIDC_SCOPES
+  value: {{ $auth.oidc.scopes | quote }}
+- name: SECURITY_OIDC_REDIRECT_URI
+  value: {{ $auth.oidc.redirectUri | quote }}
+- name: SECURITY_OIDC_USER_CLAIM
+  value: {{ $auth.oidc.userClaim | quote }}
+- name: SECURITY_OIDC_GROUPS_CLAIM
+  value: {{ $auth.oidc.groupsClaim | quote }}
+- name: SECURITY_OIDC_SKIP_TLS_VERIFY
+  value: {{ $auth.oidc.skipTlsVerify | default false | quote }}
+- name: SECURITY_OIDC_CA_SECRET
+  value: {{ $auth.oidc.caSecret | quote }}
+{{- end }}
+{{- end }}
+{{- end -}}
+
 {{/*
 Create a default fully qualified app name.
 We truncate at 63 chars because some Kubernetes name fields are limited to this (by the DNS naming spec).
@@ -98,6 +163,51 @@ DATA_CACHE_CONFIG = CACHE_CONFIG
 
 SQLALCHEMY_DATABASE_URI = f"postgresql+psycopg2://{env('DB_USER')}:{env('DB_PASS')}@{env('DB_HOST')}:{env('DB_PORT')}/{env('DB_NAME')}"
 SQLALCHEMY_TRACK_MODIFICATIONS = True
+
+# -------------------- Security Profiles --------------------
+AUTH_TYPE = os.getenv("SECURITY_AUTH_MODE", "none").upper()
+if AUTH_TYPE == "OIDC":
+    from flask_appbuilder.security.manager import AUTH_OAUTH
+    AUTH_TYPE = AUTH_OAUTH
+    OAUTH_PROVIDERS = [
+        {
+            'name': 'generic',
+            'token_key': 'access_token',
+            'icon': 'fa-user',
+            'remote_app': {
+                'client_id': env('SECURITY_OIDC_CLIENT_ID'),
+                'client_secret': env('SECURITY_OIDC_CLIENT_SECRET'),
+                'api_base_url': env('SECURITY_OIDC_ISSUER'),
+                'access_token_url': env('SECURITY_OIDC_ISSUER') + '/protocol/openid-connect/token',
+                'authorize_url': env('SECURITY_OIDC_ISSUER') + '/protocol/openid-connect/auth',
+                'client_kwargs': {
+                    'scope': env('SECURITY_OIDC_SCOPES', 'openid email profile'),
+                },
+            },
+            'redirect_uri': env('SECURITY_OIDC_REDIRECT_URI'),
+        }
+    ]
+elif AUTH_TYPE in ("LDAP", "AD"):
+    from flask_appbuilder.security.manager import AUTH_LDAP
+    AUTH_TYPE = AUTH_LDAP
+    AUTH_LDAP_SERVER = env('SECURITY_LDAP_URL') or env('SECURITY_AD_URL')
+    AUTH_LDAP_USE_TLS = env('SECURITY_LDAP_STARTTLS', 'false').lower() == 'true'
+    AUTH_LDAP_BIND_USER = env('SECURITY_LDAP_BIND_DN') or env('SECURITY_AD_BIND_DN')
+    AUTH_LDAP_BIND_PASSWORD = env('SECURITY_LDAP_BIND_PASSWORD') or env('SECURITY_AD_BIND_PASSWORD')
+    AUTH_LDAP_SEARCH = env('SECURITY_LDAP_BASE_DN') or env('SECURITY_AD_BASE_DN')
+    AUTH_LDAP_SEARCH_FILTER = env('SECURITY_LDAP_USER_DN_TEMPLATE') or env('SECURITY_AD_USER_SEARCH_FILTER') or '(uid={username})'
+    AUTH_LDAP_UID_FIELD = 'uid'
+
+    # Group settings
+    AUTH_ROLES_SYNC_AT_LOGIN = True
+    AUTH_LDAP_GROUP_FIELD = 'memberOf'
+    AUTH_LDAP_GROUP_SEARCH = env('SECURITY_LDAP_GROUP_SEARCH_BASE', '')
+    AUTH_LDAP_GROUP_SEARCH_FILTER = env('SECURITY_LDAP_GROUP_SEARCH_FILTER', '')
+    AUTH_LDAP_GROUP_SEARCH_SCOPE = 'SUBTREE'
+    AUTH_LDAP_GROUP_MEMBER_ATTR = 'member'
+else:
+    from flask_appbuilder.security.manager import AUTH_DB
+    AUTH_TYPE = AUTH_DB
 
 class CeleryConfig:
   imports  = ("superset.sql_lab", )
