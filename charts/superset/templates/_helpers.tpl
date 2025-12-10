@@ -206,7 +206,7 @@ release: {{ .Release.Name }}
 {{- $kerb := $st.kerb -}}
 {{- $kinit := $st.kinit -}}
 {{- $cacheFile := $st.cacheFile -}}
-{{- if and $kerb.enabled $kinit.enabled $cacheFile }}
+{{- if $kerb.enabled }}
 - name: KRB5CCNAME
   value: {{ $cacheFile | quote }}
 {{- end }}
@@ -254,7 +254,7 @@ release: {{ .Release.Name }}
 {{- $kinit := $st.kinit -}}
 {{- $cacheFile := $st.cacheFile -}}
 {{- $cacheDir := $st.cacheDir -}}
-{{- if and $kerb.enabled $kinit.enabled }}
+{{- if $kerb.enabled }}
 - name: kinit-renew
   image: {{- /* reuse override if provided, else main superset image */ -}}
     {{- $img := $kinit.image | default dict -}}
