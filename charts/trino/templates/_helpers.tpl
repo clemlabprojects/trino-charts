@@ -245,6 +245,7 @@ Returns "true" when Ranger integration should be enabled (based on accessControl
 {{- $base := default (list) .Values.env -}}
 {{- $addHadoop := and .Values.hadoopConf.enabled .Values.hadoopConf.setEnv -}}
 {{- $addTls := and .Values.global.security.tls.enabled .Values.global.security.tls.truststore.enabled .Values.global.security.tls.truststoreSecret -}}
+{{- $tlsEnv := default (dict "pathEnv" "TRUSTSTORE_PATH" "passwordEnv" "TRUSTSTORE_PASSWORD") .Values.global.security.tls.env -}}
 {{- if gt (len $base) 0 }}
 {{ toYaml $base | nindent 0 }}
 {{- end }}
@@ -253,10 +254,10 @@ Returns "true" when Ranger integration should be enabled (based on accessControl
   value: /etc/hadoop/conf
 {{- end }}
 {{- if $addTls }}
-- name: {{ default "TRUSTSTORE_PATH" .Values.global.security.tls.env.pathEnv | quote }}
+- name: {{ default "TRUSTSTORE_PATH" $tlsEnv.pathEnv | quote }}
   value: {{ ternary "/etc/security/truststore/ca.crt" (default "/etc/security/truststore/truststore.jks" .Values.global.security.tls.mountPath) (eq (default "jks" .Values.global.security.tls.truststore.format | lower) "pem") | quote }}
 {{- if ne (default "jks" .Values.global.security.tls.truststore.format | lower) "pem" }}
-- name: {{ default "TRUSTSTORE_PASSWORD" .Values.global.security.tls.env.passwordEnv | quote }}
+- name: {{ default "TRUSTSTORE_PASSWORD" $tlsEnv.passwordEnv | quote }}
   valueFrom:
     secretKeyRef:
       name: {{ .Values.global.security.tls.truststoreSecret }}
