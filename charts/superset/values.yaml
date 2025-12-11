@@ -89,10 +89,11 @@ global:
         truststorePasswordKey: truststore.password
         # Where to mount the truststore file in the container
         mountPath: /etc/security/truststore/truststore.jks
-        # Expose path/password via env for clients (JVMs can use JAVA_TOOL_OPTIONS)
+        # Expose path/password via env for clients (JVMs can use JAVA_TOOL_OPTIONS).
+        # These defaults are also used when the Ambari Global Security Profile does not specify custom names.
         env:
-        pathEnv: TRUSTSTORE_PATH
-        passwordEnv: TRUSTSTORE_PASSWORD
+          pathEnv: TRUSTSTORE_PATH
+          passwordEnv: TRUSTSTORE_PASSWORD
 
 # A README is automatically generated from this file to document it, using helm-docs (see https://github.com/norwoodj/helm-docs)
 # To update it, install helm-docs and run helm-docs from the root of this chart

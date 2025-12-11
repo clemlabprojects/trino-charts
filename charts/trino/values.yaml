@@ -76,6 +76,8 @@ global:
         pemKey: ca.crt
         truststorePasswordKey: truststore.password
         mountPath: /etc/security/truststore/truststore.jks
+        # Optional env var names exported to the JVM when truststore is mounted.
+        # These defaults are also used when the Ambari Global Security Profile does not specify custom names.
         env:
           pathEnv: TRUSTSTORE_PATH
           passwordEnv: TRUSTSTORE_PASSWORD
