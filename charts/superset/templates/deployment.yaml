@@ -114,6 +114,7 @@ spec:
               {{- toYaml .Values.extraEnvRaw | nindent 12 }}
             {{- end }}
             {{- include "superset.security.env" . | nindent 12 }}
+            {{- include "superset.admin.env" . | nindent 12 }}
             {{- include "superset.truststore.env" . | nindent 12 }}
             {{- include "superset.kerberos.env" . | nindent 12 }}
           envFrom:

@@ -33,6 +33,9 @@ global:
   #     ghcr.io:   registry.example.com/ghcr
   registryOverrides: {}
   security:
+    # Optional admin wiring for Superset (comma-separated lists). Passed to env as SECURITY_ADMIN_USERS / SECURITY_ADMIN_GROUPS.
+    adminUsers: ""
+    adminGroups: ""
 
     # Labels the webhook uses (don’t change unless you changed the webhook env)
     admissionWebhook:

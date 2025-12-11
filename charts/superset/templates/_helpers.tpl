@@ -90,6 +90,20 @@ Expand the name of the chart.
 {{- end }}
 {{- end -}}
 
+{{/* Optional admin mapping (users/groups -> Admin role) */}}
+{{- define "superset.admin.env" -}}
+{{- $adm := .Values.global.security.adminUsers | default "" -}}
+{{- $admGroups := .Values.global.security.adminGroups | default "" -}}
+{{- if $adm }}
+- name: SECURITY_ADMIN_USERS
+  value: {{ $adm | quote }}
+{{- end }}
+{{- if $admGroups }}
+- name: SECURITY_ADMIN_GROUPS
+  value: {{ $admGroups | quote }}
+{{- end }}
+{{- end -}}
+
 {{/*
 Create a default fully qualified app name.
 We truncate at 63 chars because some Kubernetes name fields are limited to this (by the DNS naming spec).
@@ -205,9 +219,24 @@ elif AUTH_TYPE in ("LDAP", "AD"):
     AUTH_LDAP_GROUP_SEARCH_FILTER = env('SECURITY_LDAP_GROUP_SEARCH_FILTER', '')
     AUTH_LDAP_GROUP_SEARCH_SCOPE = 'SUBTREE'
     AUTH_LDAP_GROUP_MEMBER_ATTR = 'member'
+    # Auto-create users on successful LDAP auth
+    AUTH_USER_REGISTRATION = True
+    # For initial tests, make first LDAP user admin; change to Gamma to have no rights
+    AUTH_USER_REGISTRATION_ROLE = "Gamma"
 else:
     from flask_appbuilder.security.manager import AUTH_DB
     AUTH_TYPE = AUTH_DB
+
+# --- Admin/user/group mapping ---
+ADMIN_ROLE_NAME = env('SECURITY_ADMIN_ROLE', 'Admin')
+ADMIN_USERS = [u.strip() for u in env('SECURITY_ADMIN_USERS', '').split(',') if u.strip()]
+ADMIN_GROUPS = [g.strip() for g in env('SECURITY_ADMIN_GROUPS', '').split(',') if g.strip()]
+
+AUTH_ROLES_MAPPING = {}
+for u in ADMIN_USERS:
+    AUTH_ROLES_MAPPING[u] = [ADMIN_ROLE_NAME]
+for g in ADMIN_GROUPS:
+    AUTH_ROLES_MAPPING[f"group:{g}"] = [ADMIN_ROLE_NAME]
 
 class CeleryConfig:
   imports  = ("superset.sql_lab", )
