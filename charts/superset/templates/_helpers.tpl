@@ -42,6 +42,8 @@ Expand the name of the chart.
 {{- if or (eq $auth.mode "ldap") (eq $auth.mode "ad") }}
 - name: SECURITY_LDAP_USER_DN_TEMPLATE
   value: {{ $auth.ldap.userDnTemplate | quote }}
+- name: SECURITY_LDAP_USER_SEARCH_FILTER
+  value: {{ $auth.ldap.userSearchFilter | quote }}
 - name: SECURITY_LDAP_BASE_DN
   value: {{ $auth.ldap.baseDn | quote }}
 - name: SECURITY_LDAP_GROUP_SEARCH_BASE
@@ -209,7 +211,7 @@ elif AUTH_TYPE in ("LDAP", "AD"):
     AUTH_LDAP_BIND_USER = env('SECURITY_LDAP_BIND_DN') or env('SECURITY_AD_BIND_DN')
     AUTH_LDAP_BIND_PASSWORD = env('SECURITY_LDAP_BIND_PASSWORD') or env('SECURITY_AD_BIND_PASSWORD')
     AUTH_LDAP_SEARCH = env('SECURITY_LDAP_BASE_DN') or env('SECURITY_AD_BASE_DN')
-    AUTH_LDAP_SEARCH_FILTER = env('SECURITY_LDAP_USER_DN_TEMPLATE') or env('SECURITY_AD_USER_SEARCH_FILTER') or '(uid={username})'
+    AUTH_LDAP_SEARCH_FILTER = env('SECURITY_LDAP_USER_SEARCH_FILTER') or env('SECURITY_AD_USER_SEARCH_FILTER') or '(uid={username})'
     AUTH_LDAP_UID_FIELD = 'uid'
 
     # Group settings
