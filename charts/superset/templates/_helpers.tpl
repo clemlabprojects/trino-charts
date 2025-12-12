@@ -146,7 +146,11 @@ Create chart name and version as used by the chart label.
 {{- define "superset-config" }}
 import os
 from flask_caching.backends.rediscache import RedisCache
-
+import logging
+logging.getLogger("flask_appbuilder.security").setLevel(logging.DEBUG)
+logging.getLogger("ldap").setLevel(logging.DEBUG)
+logging.getLogger("superset.security").setLevel(logging.DEBUG)
+LOG_LEVEL="DEBUG"
 def env(key, default=None):
     return os.getenv(key, default)
 
@@ -211,7 +215,7 @@ elif AUTH_TYPE in ("LDAP", "AD"):
     AUTH_LDAP_BIND_USER = env('SECURITY_LDAP_BIND_DN') or env('SECURITY_AD_BIND_DN')
     AUTH_LDAP_BIND_PASSWORD = env('SECURITY_LDAP_BIND_PASSWORD') or env('SECURITY_AD_BIND_PASSWORD')
     AUTH_LDAP_SEARCH = env('SECURITY_LDAP_BASE_DN') or env('SECURITY_AD_BASE_DN')
-    AUTH_LDAP_SEARCH_FILTER = env('SECURITY_LDAP_USER_SEARCH_FILTER') or env('SECURITY_AD_USER_SEARCH_FILTER') or '(uid={username})'
+    AUTH_LDAP_SEARCH_FILTER = env('SECURITY_LDAP_USER_SEARCH_FILTER') or env('SECURITY_AD_USER_SEARCH_FILTER')
     AUTH_LDAP_UID_FIELD = 'uid'
 
     # Group settings
