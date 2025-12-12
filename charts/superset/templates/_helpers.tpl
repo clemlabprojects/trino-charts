@@ -236,13 +236,36 @@ else:
 # --- Admin/user/group mapping ---
 ADMIN_ROLE_NAME = env('SECURITY_ADMIN_ROLE', 'Admin')
 ADMIN_USERS = [u.strip() for u in env('SECURITY_ADMIN_USERS', '').split(',') if u.strip()]
-ADMIN_GROUPS = [g.strip() for g in env('SECURITY_ADMIN_GROUPS', '').split(',') if g.strip()]
 
 AUTH_ROLES_MAPPING = {}
 for u in ADMIN_USERS:
     AUTH_ROLES_MAPPING[u] = [ADMIN_ROLE_NAME]
-for g in ADMIN_GROUPS:
-    AUTH_ROLES_MAPPING[f"group:{g}"] = [ADMIN_ROLE_NAME]
+
+# Comma-separated. Each entry may be:
+# - short name: hadoop_admins
+# - full DN: cn=hadoop_admins,cn=groups,cn=accounts,dc=...
+ADMIN_GROUPS_RAW = [g.strip() for g in env("SECURITY_ADMIN_GROUPS", "").split(",") if g.strip()]
+LDAP_GROUPS_BASE = env("SECURITY_LDAP_GROUP_SEARCH_BASE", "")  # e.g. cn=groups,cn=accounts,dc=...
+LDAP_GROUP_RDN_ATTR = env("SECURITY_LDAP_GROUP_RDN_ATTR", "cn")  # cn | uid | whatever
+
+AUTH_ROLES_MAPPING = {}
+
+def _is_dn(s: str) -> bool:
+    return "=" in s and "," in s  # good enough for our purposes
+
+for g in ADMIN_GROUPS_RAW:
+    if _is_dn(g):
+        # user provided full DN
+        AUTH_ROLES_MAPPING[g] = [ADMIN_ROLE_NAME]
+    else:
+        # user provided short name -> build DN using RDN attr + group base
+        if LDAP_GROUPS_BASE:
+            dn = f"{LDAP_GROUP_RDN_ATTR}={g},{LDAP_GROUPS_BASE}"
+            AUTH_ROLES_MAPPING[dn] = [ADMIN_ROLE_NAME]
+        # optional fallback mapping (rarely useful, but harmless)
+        AUTH_ROLES_MAPPING[g] = [ADMIN_ROLE_NAME]
+
+AUTH_ROLES_SYNC_AT_LOGIN = True
 
 class CeleryConfig:
   imports  = ("superset.sql_lab", )
