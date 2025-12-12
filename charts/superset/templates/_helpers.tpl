@@ -151,6 +151,7 @@ logging.getLogger("flask_appbuilder.security").setLevel(logging.DEBUG)
 logging.getLogger("ldap").setLevel(logging.DEBUG)
 logging.getLogger("superset.security").setLevel(logging.DEBUG)
 LOG_LEVEL="DEBUG"
+
 def env(key, default=None):
     return os.getenv(key, default)
 
@@ -302,7 +303,15 @@ RESULTS_BACKEND = RedisCache(
 {{ $files.Get $value }}
 {{- end }}
 {{- end }}
+# --- Hive fix: stop Superset from running Presto-style "SHOW CATALOGS" on Hive ---
+def FLASK_APP_MUTATOR(app):
+    from superset.db_engine_specs.hive import HiveEngineSpec
 
+    @classmethod
+    def _no_catalogs(cls, database, inspector):
+        return set()
+
+    HiveEngineSpec.get_catalog_names = _no_catalogs
 {{- end }}
 
 {{- define "supersetCeleryBeat.selectorLabels" -}}
