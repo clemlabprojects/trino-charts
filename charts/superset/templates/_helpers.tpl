@@ -26,6 +26,7 @@ Expand the name of the chart.
 {{- end -}}
 
 {{/* Security profile wiring: expose auth settings as env vars for Superset to consume in custom config */}}
+
 {{- define "superset.security.env" -}}
 {{- $auth := .Values.global.security.auth | default dict -}}
 {{- if $auth.mode }}
@@ -174,6 +175,21 @@ CACHE_REDIS_URL = f"{REDIS_BASE_URL}/{env('REDIS_DB', 1)}{REDIS_URL_PARAMS}"
 CELERY_REDIS_URL = f"{REDIS_BASE_URL}/{env('REDIS_CELERY_DB', 0)}{REDIS_URL_PARAMS}"
 
 MAPBOX_API_KEY = env('MAPBOX_API_KEY', '')
+MAP_TILES_SERVER_URL = env('OPENSTREETMAP_SERVER_URL', '')
+if MAP_TILES_SERVER_URL != '':
+  MAP_TILES = [
+      {
+          "id": "osm_local",
+          "name": "OpenStreetMap (local)",
+          "url": MAP_TILES_SERVER_URL + "/styles/basic/{z}/{x}/{y}.png",
+          "attribution": (
+              "© OpenStreetMap contributors"
+          ),
+      }
+  ]
+
+# Optional but recommended
+DEFAULT_MAP_TILE = "osm_local"
 CACHE_CONFIG = {
       'CACHE_TYPE': 'RedisCache',
       'CACHE_DEFAULT_TIMEOUT': 300,
