@@ -176,11 +176,7 @@ CELERY_REDIS_URL = f"{REDIS_BASE_URL}/{env('REDIS_CELERY_DB', 0)}{REDIS_URL_PARA
 
 MAPBOX_API_KEY = env('MAPBOX_API_KEY', '')
 MAP_TILES_SERVER_URL = env("OPENSTREETMAP_SERVER_URL", "").rstrip("/")
-
-if MAP_TILES_SERVER_URL:
-  DECKGL_BASE_MAP = [
-    [MAP_TILES_SERVER_URL + "/styles/basic/{z}/{x}/{y}.png", "OpenStreetMap"]
-  ]
+MAPBOX_STYLE = MAP_TILES_SERVER_URL+"/styles/basic-preview/style.json"
 
 # Optional but recommended
 DEFAULT_MAP_TILE = "osm_local"
