@@ -180,7 +180,7 @@ MAP_TILES_SERVER_URL = env("OPENSTREETMAP_SERVER_URL", "").rstrip("/")
 if MAP_TILES_SERVER_URL:
     # deck.gl uses this for the basemap list
   DECKGL_BASE_MAP = [
-      [MAP_TILES_SERVER_URL + "/styles/basic/{z}/{x}/{y}.png", "OSM (local tileserver)"],
+      [MAP_TILES_SERVER_URL + "/styles/basic/{z}/{x}/{y}.png", "OpenStreetMap"],
   ]
 
 # Optional but recommended
