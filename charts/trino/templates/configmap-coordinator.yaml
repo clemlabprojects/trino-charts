@@ -64,10 +64,11 @@ data:
     discovery.uri=http://localhost:{{ .Values.service.port }}
     {{- if .Values.server.config.authenticationType }}
     http-server.authentication.type={{ .Values.server.config.authenticationType }}
+    {{- else if $ldapModeEnabled }}
+    http-server.authentication.type=PASSWORD
     {{- end }}
     {{- if $ldapModeEnabled }}
-    password-authenticators=ldap
-    password-authenticator.config-file={{ .Values.server.config.path }}/password-authenticator.properties
+    password-authenticator.config-files={{ .Values.server.config.path }}/password-authenticator.properties
     {{- end }}
     {{- range $configValue := .Values.additionalConfigProperties }}
     {{ $configValue }}
@@ -173,7 +174,7 @@ data:
     {{ $configValue }}
   {{- end }}
 
-  {{- if contains "PASSWORD" .Values.server.config.authenticationType }}{{- if not (index .Values.coordinator.additionalConfigFiles "password-authenticator.properties") }}
+  {{- if or (contains "PASSWORD" .Values.server.config.authenticationType) $ldapModeEnabled }}{{- if not (index .Values.coordinator.additionalConfigFiles "password-authenticator.properties") }}
   {{- if $ldapModeEnabled }}
   {{- $ldapUrl := default "" $ldapCfg.url }}
   {{- if eq $authMode "ad" }}
