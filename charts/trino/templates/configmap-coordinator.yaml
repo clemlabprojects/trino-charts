@@ -7,6 +7,10 @@ metadata:
   labels:
     {{- include "trino.labels" . | nindent 4 }}
     app.kubernetes.io/component: coordinator
+{{- $auth := .Values.global.security.auth | default dict }}
+{{- $authMode := lower (default "" $auth.mode) }}
+{{- $ldapCfg := $auth.ldap | default dict }}
+{{- $ldapModeEnabled := and (contains (default "" .Values.server.config.authenticationType) "PASSWORD") (or (eq $authMode "ldap") (eq $authMode "ad")) }}
 data:
   node.properties: |
     node.environment={{ tpl .Values.server.node.environment . }}
@@ -60,6 +64,10 @@ data:
     discovery.uri=http://localhost:{{ .Values.service.port }}
     {{- if .Values.server.config.authenticationType }}
     http-server.authentication.type={{ .Values.server.config.authenticationType }}
+    {{- end }}
+    {{- if $ldapModeEnabled }}
+    password-authenticators=ldap
+    password-authenticator.config-file={{ .Values.server.config.path }}/password-authenticator.properties
     {{- end }}
     {{- range $configValue := .Values.additionalConfigProperties }}
     {{ $configValue }}
@@ -166,18 +174,70 @@ data:
   {{- end }}
 
   {{- if contains "PASSWORD" .Values.server.config.authenticationType }}{{- if not (index .Values.coordinator.additionalConfigFiles "password-authenticator.properties") }}
+  {{- if $ldapModeEnabled }}
+  {{- $ldapUrl := default "" $ldapCfg.url }}
+  {{- if eq $authMode "ad" }}
+  {{- $ldapUrl = default $ldapCfg.adUrl $ldapUrl }}
+  {{- end }}
+  {{- $bindPattern := "" }}
+  {{- if $ldapCfg.userDnTemplate }}
+  {{- $bindPattern = $ldapCfg.userDnTemplate }}
+  {{- else if and (eq $authMode "ad") $ldapCfg.adDomain }}
+  {{- $bindPattern = printf "${USER}@%s" $ldapCfg.adDomain }}
+  {{- end }}
+  {{- $baseDn := $ldapCfg.baseDn }}
+  {{- if eq $authMode "ad" }}
+  {{- $baseDn = default $ldapCfg.adBaseDn $baseDn }}
+  {{- end }}
+  {{- $bindDn := $ldapCfg.bindDn }}
+  {{- if eq $authMode "ad" }}
+  {{- $bindDn = default $ldapCfg.adBindDn $bindDn }}
+  {{- end }}
+  {{- $bindPassword := $ldapCfg.bindPassword }}
+  {{- if eq $authMode "ad" }}
+  {{- $bindPassword = default $ldapCfg.adBindPassword $bindPassword }}
+  {{- end }}
+  {{- $userFilter := $ldapCfg.userSearchFilter }}
+  {{- if eq $authMode "ad" }}
+  {{- $userFilter = default $ldapCfg.adUserSearchFilter $userFilter }}
+  {{- end }}
+  password-authenticator.properties: |
+    password-authenticator.name=ldap
+    {{- if $ldapUrl }}
+    ldap.url={{ $ldapUrl }}
+    {{- end }}
+    {{- if $bindPattern }}
+    ldap.user-bind-pattern={{ $bindPattern }}
+    {{- end }}
+    {{- if $baseDn }}
+    ldap.user-base-dn={{ $baseDn }}
+    {{- else if $ldapCfg.groupSearchBase }}
+    ldap.user-base-dn={{ $ldapCfg.groupSearchBase }}
+    {{- end }}
+    {{- if $userFilter }}
+    ldap.user-search-filter={{ $userFilter }}
+    {{- end }}
+    {{- if $ldapCfg.groupSearchFilter }}
+    ldap.group-auth-pattern={{ $ldapCfg.groupSearchFilter }}
+    {{- end }}
+    {{- if $bindDn }}
+    ldap.bind-dn={{ $bindDn }}
+    {{- end }}
+    {{- if $bindPassword }}
+    ldap.bind-password={{ $bindPassword }}
+    {{- end }}
+    {{- if not (or (hasPrefix $ldapUrl "ldaps://") $ldapCfg.startTls) }}
+    ldap.allow-insecure=true
+    {{- end }}
+    {{- if eq (lower (default "" $ldapCfg.referral)) "ignore" }}
+    ldap.ignore-referrals=true
+    {{- end }}
+  {{- else }}
   password-authenticator.properties: |
     password-authenticator.name=file
     file.password-file={{ .Values.server.config.path }}/auth/password/password.db
-  {{- end }}{{- end }}
-
-  {{- if eq .Values.server.config.authenticationType "LDAP" }}
-  ldap.properties: |
-    ldap.url={{ .Values.global.security.auth.ldap.url }}
-    ldap.user-bind-pattern={{ .Values.global.security.auth.ldap.userDnTemplate }}
-    ldap.user-base-dn={{ .Values.global.security.auth.ldap.baseDn }}
-    ldap.group-authentication="${TRINO_LDAP_GROUP_SEARCH_FILTER:-{{ .Values.global.security.auth.ldap.groupSearchFilter }}}"
   {{- end }}
+  {{- end }}{{- end }}
 
   {{- if eq .Values.server.config.authenticationType "OIDC" }}
   oidc.properties: |
