@@ -65,6 +65,7 @@ data:
     {{- if .Values.server.config.authenticationType }}
     http-server.authentication.type={{ .Values.server.config.authenticationType }}
     {{- else if $ldapModeEnabled }}
+    web-ui.authentication.type=PASSWORD
     http-server.authentication.type=PASSWORD
     {{- end }}
     {{- if $ldapModeEnabled }}
