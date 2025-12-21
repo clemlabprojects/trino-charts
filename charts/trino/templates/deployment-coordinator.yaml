@@ -209,7 +209,8 @@ spec:
       initContainers:
       {{- if $rangerEnabled }}
         - name: init-ranger-dirs
-          image: busybox:1.36
+          image: {{ include "trino.busybox.image" (dict "root" .) }}
+          imagePullPolicy: {{ default "IfNotPresent" .Values.busyboxImage.pullPolicy }}
           command: ["sh","-c","mkdir -p /etc/trino/ranger/ssl"]
           volumeMounts:
             - name: ranger-dir
@@ -237,7 +238,9 @@ spec:
               mountPath: {{ .Values.server.config.https.keystore.passwordMountPath | default "/etc/trino/https-pass/password" }}
               subPath: password
       {{- end }}
+      {{- if .Values.initContainers.coordinator }}
       {{- tpl (toYaml .Values.initContainers.coordinator) . | nindent 6 }}
+      {{- end }}
       {{- end }}
       {{- if .Values.imagePullSecrets}}
       imagePullSecrets:
