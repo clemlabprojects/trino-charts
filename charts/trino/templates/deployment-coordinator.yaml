@@ -225,7 +225,8 @@ spec:
             - -c
             - |
               set -e
-              cp -R /configmap-original/* /config-merged/
+              mkdir -p /config-merged
+              cp -a /configmap-original/. /config-merged/ || true
               if [ -f {{ .Values.server.config.https.keystore.passwordMountPath | default "/etc/trino/https-pass/password" }} ]; then
                 echo "http-server.https.keystore.key=$(cat {{ .Values.server.config.https.keystore.passwordMountPath | default "/etc/trino/https-pass/password" }})" >> /config-merged/config.properties
               fi
