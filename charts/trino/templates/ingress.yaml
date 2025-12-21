@@ -6,8 +6,16 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "trino.labels" . | nindent 4 }}
+  {{- /* merge user annotations and enforce HTTPS backend when internal HTTPS is on */ -}}
+  {{- $ingressAnnotations := dict -}}
+  {{- range $key, $val := .Values.ingress.annotations }}
+  {{- $_ := set $ingressAnnotations $key $val }}
+  {{- end }}
+  {{- if and $.Values.server.config.https.enabled (not (hasKey $ingressAnnotations "nginx.ingress.kubernetes.io/backend-protocol")) }}
+  {{- $_ := set $ingressAnnotations "nginx.ingress.kubernetes.io/backend-protocol" "HTTPS" }}
+  {{- end }}
   annotations:
-    {{- toYaml .Values.ingress.annotations | nindent 4 }}
+    {{- toYaml $ingressAnnotations | nindent 4 }}
 spec:
   ingressClassName: {{ .Values.ingress.className }}
   {{- if .Values.ingress.tls }}
