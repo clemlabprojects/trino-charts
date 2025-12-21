@@ -742,6 +742,9 @@ coordinator:
 
   additionalJVMConfig: []
 
+  # coordinator.additionalConfigProperties -- Extra lines appended only to coordinator config.properties
+  additionalConfigProperties: []
+
   additionalExposedPorts: {}
   # coordinator.additionalExposedPorts -- Additional ports configured in the coordinator container and the service.
   # @raw
