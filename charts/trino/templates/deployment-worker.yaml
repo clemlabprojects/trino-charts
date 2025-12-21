@@ -63,8 +63,12 @@ spec:
       {{- end }}
       volumes:
         - name: config-volume
+          {{- if and .Values.server.config.https.keystore.secretName .Values.server.config.https.keystore.passwordSecretName .Values.server.config.https.enabled }}
+          emptyDir: {}
+          {{- else }}
           configMap:
             name: {{ template "trino.worker" . }}
+          {{- end }}
         {{- if or .Values.catalogs .Values.additionalCatalogs }}
         - name: catalog-volume
           configMap:
@@ -111,6 +115,23 @@ spec:
             name: {{ .Values.hadoopConf.configMapName }}
         {{- end }}
         {{ include "trino.truststore.volume" . | nindent 8 }}
+        {{- if and .Values.server.config.https.keystore.secretName .Values.server.config.https.keystore.passwordSecretName .Values.server.config.https.enabled }}
+        - name: https-keystore
+          secret:
+            secretName: {{ .Values.server.config.https.keystore.secretName }}
+            items:
+              - key: {{ .Values.server.config.https.keystore.key | default "keystore.p12" }}
+                path: https-keystore
+        - name: https-keystore-pass
+          secret:
+            secretName: {{ .Values.server.config.https.keystore.passwordSecretName }}
+            items:
+              - key: {{ .Values.server.config.https.keystore.passwordKey | default "password" }}
+                path: password
+        - name: configmap-original
+          configMap:
+            name: {{ template "trino.worker" . }}
+        {{- end }}
         {{- with .Values.worker.additionalVolumes }}
         {{- tpl (. | toYaml) $ | nindent 8 }}
         {{- end }}
@@ -123,10 +144,35 @@ spec:
               - key: {{ .Values.global.security.kerberos.key }}
                 path: krb5.conf
             {{- end }}
-        {{- end }}
-      {{- if .Values.initContainers.worker }}
+      {{- end }}
+      {{- $httpsInit := and .Values.server.config.https.keystore.secretName .Values.server.config.https.keystore.passwordSecretName .Values.server.config.https.enabled -}}
+      {{- if or .Values.initContainers.worker $httpsInit }}
       initContainers:
+      {{- if .Values.initContainers.worker }}
       {{- tpl (toYaml .Values.initContainers.worker) . | nindent 6 }}
+      {{- end }}
+      {{- if $httpsInit }}
+        - name: init-https-keystore
+          image: {{ include "trino.busybox.image" (dict "root" .) }}
+          imagePullPolicy: {{ default "IfNotPresent" .Values.busyboxImage.pullPolicy }}
+          command:
+            - sh
+            - -c
+            - |
+              set -e
+              cp -R /configmap-original/* /config-merged/
+              if [ -f {{ .Values.server.config.https.keystore.passwordMountPath | default "/etc/trino/https-pass/password" }} ]; then
+                echo "http-server.https.keystore.key=$(cat {{ .Values.server.config.https.keystore.passwordMountPath | default "/etc/trino/https-pass/password" }})" >> /config-merged/config.properties
+              fi
+          volumeMounts:
+            - name: configmap-original
+              mountPath: /configmap-original
+            - name: config-volume
+              mountPath: /config-merged
+            - name: https-keystore-pass
+              mountPath: {{ .Values.server.config.https.keystore.passwordMountPath | default "/etc/trino/https-pass/password" }}
+              subPath: password
+      {{- end }}
       {{- end }}
       {{- if .Values.imagePullSecrets}}
       imagePullSecrets:
@@ -151,6 +197,16 @@ spec:
           volumeMounts:
             - mountPath: {{ .Values.server.config.path }}
               name: config-volume
+            {{- if and .Values.server.config.https.keystore.secretName .Values.server.config.https.keystore.passwordSecretName .Values.server.config.https.enabled }}
+            - name: https-keystore
+              mountPath: {{ .Values.server.config.https.keystore.mountPath | default "/etc/trino/https-keystore.p12" }}
+              subPath: https-keystore
+              readOnly: true
+            - name: https-keystore-pass
+              mountPath: {{ .Values.server.config.https.keystore.passwordMountPath | default "/etc/trino/https-pass/password" }}
+              subPath: password
+              readOnly: true
+            {{- end }}
             {{- if or .Values.catalogs .Values.additionalCatalogs }}
             - mountPath: {{ .Values.server.config.path }}/catalog
               name: catalog-volume

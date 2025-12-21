@@ -37,6 +37,14 @@ image:
 # ```
 imagePullSecrets: []
 
+busyboxImage:
+  registry: ""
+  repository: "busybox"
+  tag: "1.36"
+  digest: ""
+  useRepositoryAsSoleImageReference: false
+  pullPolicy: IfNotPresent
+
 global:
   imageRegistry: "registry.clemlab.com/clemlabprojects"
   imagePullSecrets: []
@@ -153,12 +161,18 @@ server:
       port: 8443
       keystore:
         path: ""
-    # -- Trino supports multiple [authentication
-    # types](https://trino.io/docs/current/security/authentication-types.html):
-    # PASSWORD, CERTIFICATE, OAUTH2, JWT, KERBEROS.
-    authenticationType: ""
+        secretName: ""        # Secret containing the HTTPS keystore (optional; when set, keystore is mounted from Secret)
+        key: keystore.p12     # Data key inside the keystore Secret
+        mountPath: /etc/trino/https-keystore.p12
+        passwordSecretName: "" # Secret containing the keystore password (optional)
+        passwordKey: truststore.password  # Data key inside the password Secret
+        passwordMountPath: /etc/trino/https-pass/password # File path where the password will be mounted
+      # -- Trino supports multiple [authentication
+      # types](https://trino.io/docs/current/security/authentication-types.html):
+      # PASSWORD, CERTIFICATE, OAUTH2, JWT, KERBEROS.
     query:
       maxMemory: "4GB"
+    authenticationType: ""
   exchangeManager: {}
   # server.exchangeManager -- Mandatory [exchange manager
   # configuration](https://trino.io/docs/current/admin/fault-tolerant-execution.html#id1).

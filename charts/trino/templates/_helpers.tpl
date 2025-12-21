@@ -202,6 +202,18 @@ Return the proper image name
 {{- end -}}
 
 {{/*
+Return busybox image honoring global registry defaults.
+*/}}
+{{- define "trino.busybox.image" -}}
+{{- $img := dict "registry" (default "" .root.Values.busyboxImage.registry)
+                 "repository" (default "busybox" .root.Values.busyboxImage.repository)
+                 "tag" (default "1.36" .root.Values.busyboxImage.tag)
+                 "digest" (default "" .root.Values.busyboxImage.digest)
+                 "useRepositoryAsSoleImageReference" (default false .root.Values.busyboxImage.useRepositoryAsSoleImageReference) -}}
+{{- include "trino.image" (dict "root" .root "image" $img) -}}
+{{- end -}}
+
+{{/*
 Create the secret name for the file-based authentication's password file
 */}}
 {{- define "trino.passwordSecretName" -}}

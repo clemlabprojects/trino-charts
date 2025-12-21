@@ -29,9 +29,14 @@ spec:
   containers:
     - name: cli
       image: "{{ include "trino.image" (dict "root" . "image" .Values.image) }}"
+      {{- /* guard lookup to avoid nil/dig type errors during lint */ -}}
+      {{- $httpsEnabled := false -}}
+      {{- if and .Values.server .Values.server.config .Values.server.config.https }}
+      {{- $httpsEnabled = (default false .Values.server.config.https.enabled) -}}
+      {{- end }}
       command: ['trino']
       args:
-    {{- if .Values.server.config.https.enabled }}
+    {{- if $httpsEnabled }}
       # port must match coordinator.additionalExposedPorts
       - trino://{{ include "trino.fullname" . }}.{{ .Release.Namespace }}:8443?SSL=true&SSLVerification=FULL&SSLTrustStorePath=/etc/trino/certificates/tls.crt
     {{- else }}
@@ -50,7 +55,7 @@ spec:
           # must match test-values.yaml
           value: admin123
     {{- end }}
-    {{- if .Values.server.config.https.enabled }}
+    {{- if $httpsEnabled }}
       volumeMounts:
         - name: certificates
           readOnly: true
