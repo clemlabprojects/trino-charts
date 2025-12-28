@@ -68,6 +68,12 @@ global:
         mountPath: /etc/security/keytabs
         secretDataKey: service.keytab
         secretName: ""   # set by Ambari view when pre-provisioning keytabs
+      # Optional override for worker keytabs when using pre-provisioned mode.
+      # If empty, the worker falls back to the coordinator keytab settings above.
+      workerKeytab:
+        mountPath: /etc/security/keytabs
+        secretDataKey: service.keytab
+        secretName: ""
 
     # Labels the webhook uses (don’t change unless you changed the webhook env)
     admissionWebhook:

@@ -2,6 +2,11 @@
 {{- $rangerEnabled := eq (include "trino.ranger.enabled" .) "true" -}}
 {{- $kerb := .Values.global.security.kerberos | default dict -}}
 {{- $kerbMode := (default "WEBHOOK" $kerb.injectionMode) | upper -}}
+{{- $coordinatorKeytab := $kerb.keytab | default dict -}}
+{{- $workerKeytab := $kerb.workerKeytab | default dict -}}
+{{- $workerKeytabSecretName := default $coordinatorKeytab.secretName $workerKeytab.secretName -}}
+{{- $workerKeytabSecretDataKey := default $coordinatorKeytab.secretDataKey $workerKeytab.secretDataKey -}}
+{{- $workerKeytabMountPath := default $coordinatorKeytab.mountPath $workerKeytab.mountPath -}}
 {{- if or .Values.server.keda.enabled (gt (int .Values.server.workers) 0) }}
 apiVersion: apps/v1
 kind: Deployment
@@ -119,13 +124,13 @@ spec:
             name: {{ .Values.hadoopConf.configMapName }}
         {{- end }}
         {{ include "trino.truststore.volume" . | nindent 8 }}
-        {{- if and .Values.global.security.kerberos.enabled $kerb.keytab.secretName }}
+        {{- if and .Values.global.security.kerberos.enabled $workerKeytabSecretName }}
         - name: keytab-secret
           secret:
-            secretName: {{ $kerb.keytab.secretName }}
+            secretName: {{ $workerKeytabSecretName }}
             items:
-              - key: {{ default "service.keytab" $kerb.keytab.secretDataKey }}
-                path: {{ default "service.keytab" $kerb.keytab.secretDataKey }}
+              - key: {{ default "service.keytab" $workerKeytabSecretDataKey }}
+                path: {{ default "service.keytab" $workerKeytabSecretDataKey }}
         {{- end }}
         {{- if and .Values.server.config.https.keystore.secretName .Values.server.config.https.keystore.passwordSecretName .Values.server.config.https.enabled }}
         - name: https-keystore
@@ -220,10 +225,10 @@ spec:
               subPath: password
               readOnly: true
             {{- end }}
-            {{- if and .Values.global.security.kerberos.enabled $kerb.keytab.secretName }}
+            {{- if and .Values.global.security.kerberos.enabled $workerKeytabSecretName }}
             # ---------- Kerberos keytab secret mount (pre-provisioned mode) ----------
             - name: keytab-secret
-              mountPath: {{ default "/etc/security/keytabs" $kerb.keytab.mountPath }}
+              mountPath: {{ default "/etc/security/keytabs" $workerKeytabMountPath }}
               readOnly: true
             {{- end }}
             {{- if or .Values.catalogs .Values.additionalCatalogs }}
