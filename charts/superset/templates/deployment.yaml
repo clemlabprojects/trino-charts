@@ -17,6 +17,15 @@
 
 */}}
 
+{{- $global := .Values.global | default dict -}}
+{{- $security := $global.security | default dict -}}
+{{- $kerb := $security.kerberos | default dict -}}
+{{- $kerbMode := (default "WEBHOOK" $kerb.injectionMode) | upper -}}
+{{- $webhookCfg := $security.admissionWebhook | default dict -}}
+{{- $injectCfg := $webhookCfg.injectKeytab | default dict -}}
+{{- $needsLabelKey := default "security.clemlab.com/needs-keytab" $injectCfg.needsKeytabLabelKey -}}
+{{- $serviceLabelKey := default "security.clemlab.com/service" $injectCfg.serviceLabelKey -}}
+
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -66,8 +75,10 @@ spec:
       labels:
         app: {{ template "superset.name" . }}
         app.kubernetes.io/component: dashboard
-        security.clemlab.com/needs-keytab: "true"
-        security.clemlab.com/service: superset-dashboard
+        {{- if and $kerb.enabled (eq $kerbMode "WEBHOOK") }}
+        {{ $needsLabelKey }}: "true"
+        {{ $serviceLabelKey }}: {{ default "superset-dashboard" $kerb.serviceLabel | quote }}
+        {{- end }}
         release: {{ .Release.Name }}
         {{- if .Values.supersetNode.podLabels }}
           {{- toYaml .Values.supersetNode.podLabels | nindent 8 }}

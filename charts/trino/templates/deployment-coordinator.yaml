@@ -1,5 +1,7 @@
 {{- $coordinatorJmx := merge .Values.jmx.coordinator (omit .Values.jmx "coordinator" "worker") -}}
 {{- $rangerEnabled := eq (include "trino.ranger.enabled" .) "true" -}}
+{{- $kerb := .Values.global.security.kerberos | default dict -}}
+{{- $kerbMode := (default "WEBHOOK" $kerb.injectionMode) | upper -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -42,8 +44,10 @@ spec:
         {{- include "trino.labels" . | nindent 8 }}
         app.kubernetes.io/component: coordinator
         trino.io/network-policy-protection: {{ ternary "enabled" "disabled" .Values.networkPolicy.enabled }}
+        {{- if eq $kerbMode "WEBHOOK" }}
         security.clemlab.com/needs-keytab: "true"
         security.clemlab.com/service: trino-coordinator
+        {{- end }}
         {{- if .Values.coordinator.labels }}
         {{- tpl (toYaml .Values.coordinator.labels) . | nindent 8 }}
         {{- end }}
@@ -204,6 +208,14 @@ spec:
               - key: {{ .Values.global.security.kerberos.key }}
                 path: krb5.conf
             {{- end }}
+        {{- end }}
+        {{- if and .Values.global.security.kerberos.enabled $kerb.keytab.secretName }}
+        - name: keytab-secret
+          secret:
+            secretName: {{ $kerb.keytab.secretName }}
+            items:
+              - key: {{ default "service.keytab" $kerb.keytab.secretDataKey }}
+                path: {{ default "service.keytab" $kerb.keytab.secretDataKey }}
         {{- end }}
       {{- if or .Values.initContainers.coordinator (and .Values.server.config.https.keystore.secretName .Values.server.config.https.keystore.passwordSecretName .Values.server.config.https.enabled) }}
       initContainers:
@@ -377,6 +389,12 @@ spec:
             - name: krb5-conf
               mountPath: {{ default "/etc/krb5.conf" .Values.global.security.kerberos.mountPath }}
               subPath: {{ default "krb5.conf" .Values.global.security.kerberos.key }}
+              readOnly: true
+            {{- end }}
+            {{- if and .Values.global.security.kerberos.enabled $kerb.keytab.secretName }}
+            # ---------- Kerberos keytab secret mount (pre-provisioned mode) ----------
+            - name: keytab-secret
+              mountPath: {{ default "/etc/security/keytabs" $kerb.keytab.mountPath }}
               readOnly: true
             {{- end }}
             {{- with .Values.coordinator.additionalVolumeMounts }}

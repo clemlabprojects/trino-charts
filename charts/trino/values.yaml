@@ -51,6 +51,7 @@ global:
   security:
     kerberos:
       enabled: true
+      injectionMode: WEBHOOK # WEBHOOK | PRE_PROVISIONED
       # Single source of truth for realm
       realm: EXAMPLE.COM # can be controlled by ambari's charts.json with dynamicValues
       configMapName: trino-krb5-conf
@@ -66,6 +67,7 @@ global:
       keytab:
         mountPath: /etc/security/keytabs
         secretDataKey: service.keytab
+        secretName: ""   # set by Ambari view when pre-provisioning keytabs
 
     # Labels the webhook uses (don’t change unless you changed the webhook env)
     admissionWebhook:

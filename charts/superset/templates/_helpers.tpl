@@ -401,6 +401,11 @@ release: {{ .Release.Name }}
   subPath: {{ default "krb5.conf" $kerb.key }}
   readOnly: true
   {{- end }}
+  {{- if $kerb.keytab.secretName }}
+- name: keytab-secret
+  mountPath: {{ default "/etc/security/keytabs" $kerb.keytab.mountPath }}
+  readOnly: true
+  {{- end }}
   {{- if $kinit.cacheDir }}
 - name: krb5-cache
   mountPath: {{ $kinit.cacheDir }}
@@ -421,6 +426,14 @@ release: {{ .Release.Name }}
     items:
       - key: {{ default "krb5.conf" $kerb.key }}
         path: krb5.conf
+  {{- end }}
+  {{- if $kerb.keytab.secretName }}
+- name: keytab-secret
+  secret:
+    secretName: {{ $kerb.keytab.secretName }}
+    items:
+      - key: {{ default "service.keytab" $kerb.keytab.secretDataKey }}
+        path: {{ default "service.keytab" $kerb.keytab.secretDataKey }}
   {{- end }}
   {{- if $kinit.cacheDir }}
 - name: krb5-cache
@@ -463,6 +476,11 @@ release: {{ .Release.Name }}
     - name: krb5-conf
       mountPath: {{ default "/etc/krb5.conf" $kerb.mountPath }}
       subPath: {{ default "krb5.conf" $kerb.key }}
+      readOnly: true
+    {{- end }}
+    {{- if $kerb.keytab.secretName }}
+    - name: keytab-secret
+      mountPath: {{ default "/etc/security/keytabs" $kerb.keytab.mountPath }}
       readOnly: true
     {{- end }}
     {{- if $kinit.cacheDir }}
