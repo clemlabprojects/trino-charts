@@ -358,10 +358,12 @@ release: {{ .Release.Name }}
 {{- end }}
 
 {{- define "superset.truststore.volumeMount" -}}
+{{- if and .Values.global.security.tls.enabled .Values.global.security.tls.truststore.enabled .Values.global.security.tls.truststoreSecret }}
 - name: truststore
   mountPath: {{ default "/etc/security/truststore/ca.crt" .Values.global.security.tls.mountPath | quote }}
   subPath: {{ default "ca.crt" .Values.global.security.tls.truststore.pemKey | quote }}
   readOnly: true
+{{- end }}
 {{- end }}
 
 {{- define "superset.truststore.volume" -}}
