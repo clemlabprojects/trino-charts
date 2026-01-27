@@ -1,6 +1,6 @@
 {{- $baseCatalogs := merge (default dict .Values.catalogs) (default dict .Values.additionalCatalogs) -}}
-{{- $coordinatorCatalogs := merge (deepCopy $baseCatalogs) (default dict .Values.coordinator.additionalCatalogs) -}}
-{{- $workerCatalogs := merge (deepCopy $baseCatalogs) (default dict .Values.worker.additionalCatalogs) -}}
+{{- $coordinatorCatalogs := merge (default dict .Values.coordinator.additionalCatalogs) (deepCopy $baseCatalogs) -}}
+{{- $workerCatalogs := merge (default dict .Values.worker.additionalCatalogs) (deepCopy $baseCatalogs) -}}
 
 {{- if $coordinatorCatalogs }}
 apiVersion: v1
