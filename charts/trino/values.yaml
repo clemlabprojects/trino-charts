@@ -753,6 +753,9 @@ coordinator:
   # coordinator.additionalConfigProperties -- Extra lines appended only to coordinator config.properties
   additionalConfigProperties: []
 
+  # coordinator.additionalCatalogs -- Coordinator-only catalog configs (merged on top of catalogs + additionalCatalogs).
+  additionalCatalogs: {}
+
   additionalExposedPorts: {}
   # coordinator.additionalExposedPorts -- Additional ports configured in the coordinator container and the service.
   # @raw
@@ -927,6 +930,9 @@ worker:
       maxMemoryPerNode: "1GB"
 
   additionalJVMConfig: []
+
+  # worker.additionalCatalogs -- Worker-only catalog configs (merged on top of catalogs + additionalCatalogs).
+  additionalCatalogs: {}
 
   additionalExposedPorts: {}
   # worker.additionalExposedPorts -- Additional container ports configured in all worker pods and the worker service.

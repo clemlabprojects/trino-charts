@@ -33,7 +33,7 @@ spec:
         {{- if and (eq .Values.accessControl.type "configmap") (not .Values.accessControl.refreshPeriod) }}
         checksum/access-control-config: {{ include (print $.Template.BasePath "/configmap-access-control-coordinator.yaml") . | sha256sum }}
         {{- end }}
-        {{- if or .Values.catalogs .Values.additionalCatalogs }}
+        {{- if or .Values.catalogs .Values.additionalCatalogs .Values.coordinator.additionalCatalogs }}
         checksum/catalog-config: {{ include (print $.Template.BasePath "/configmap-catalog.yaml") . | sha256sum }}
         {{- end }}
         checksum/coordinator-config: {{ include (print $.Template.BasePath "/configmap-coordinator.yaml") . | sha256sum }}
@@ -68,10 +68,10 @@ spec:
           configMap:
             name: {{ template "trino.coordinator" . }}
           {{- end }}
-        {{- if or .Values.catalogs .Values.additionalCatalogs }}
+        {{- if or .Values.catalogs .Values.additionalCatalogs .Values.coordinator.additionalCatalogs }}
         - name: catalog-volume
           configMap:
-            name: {{ template "trino.catalog" . }}
+            name: {{ template "trino.catalog.coordinator" . }}
         {{- end }}
         - name: schemas-volume
           configMap:
@@ -284,7 +284,7 @@ spec:
               subPath: password
               readOnly: true
             {{- end }}
-            {{- if or .Values.catalogs .Values.additionalCatalogs }}
+            {{- if or .Values.catalogs .Values.additionalCatalogs .Values.coordinator.additionalCatalogs }}
             - mountPath: {{ .Values.server.config.path }}/catalog
               name: catalog-volume
             {{- end }}

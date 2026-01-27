@@ -62,6 +62,14 @@ Create chart name and version as used by the chart label.
 {{ template "trino.fullname" . }}-catalog
 {{- end -}}
 
+{{- define "trino.catalog.coordinator" -}}
+{{ template "trino.fullname" . }}-catalog-coordinator
+{{- end -}}
+
+{{- define "trino.catalog.worker" -}}
+{{ template "trino.fullname" . }}-catalog-worker
+{{- end -}}
+
 {{/* Security profile wiring: map global.security.auth.* to Trino config/environment */}}
 {{- define "trino.security.env" -}}
 {{- $auth := .Values.global.security.auth | default dict -}}

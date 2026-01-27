@@ -1,15 +1,37 @@
-{{- if or .Values.catalogs .Values.additionalCatalogs }}
+{{- $baseCatalogs := merge (default dict .Values.catalogs) (default dict .Values.additionalCatalogs) -}}
+{{- $coordinatorCatalogs := merge (deepCopy $baseCatalogs) (default dict .Values.coordinator.additionalCatalogs) -}}
+{{- $workerCatalogs := merge (deepCopy $baseCatalogs) (default dict .Values.worker.additionalCatalogs) -}}
+
+{{- if $coordinatorCatalogs }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: {{ template "trino.catalog" . }}
+  name: {{ template "trino.catalog.coordinator" . }}
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "trino.labels" . | nindent 4 }}
     app.kubernetes.io/component: catalogs
+    app.kubernetes.io/component-role: coordinator
 data:
-{{- $merged := merge .Values.catalogs .Values.additionalCatalogs }}
-{{- range $catalogName, $catalogProperties := $merged }}
+{{- range $catalogName, $catalogProperties := $coordinatorCatalogs }}
+  {{ $catalogName }}.properties: |
+    {{- $catalogProperties | nindent 4 }}
+{{- end }}
+{{- end }}
+
+{{- if $workerCatalogs }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ template "trino.catalog.worker" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "trino.labels" . | nindent 4 }}
+    app.kubernetes.io/component: catalogs
+    app.kubernetes.io/component-role: worker
+data:
+{{- range $catalogName, $catalogProperties := $workerCatalogs }}
   {{ $catalogName }}.properties: |
     {{- $catalogProperties | nindent 4 }}
 {{- end }}
