@@ -1,0 +1,69 @@
+annotations:
+  # Full image manifest for this chart version (gitlab/gitlab 8.11.2 = GitLab CE 17.11.2).
+  # Run sync-images.sh to mirror these to registry.clemlab.com before air-gapped installs.
+  # Verify exact tags after each chart upgrade: helm show values gitlab/gitlab | grep "tag:"
+  images: |
+    # --- GitLab CNG images (registry.gitlab.com/gitlab-org/build/cng) ---
+    - name: webservice
+      image: registry.clemlab.com/clemlabprojects/cng/gitlab-webservice-ce:v17.11.2
+    - name: workhorse
+      image: registry.clemlab.com/clemlabprojects/cng/gitlab-workhorse-ce:v17.11.2
+    - name: sidekiq
+      image: registry.clemlab.com/clemlabprojects/cng/gitlab-sidekiq-ce:v17.11.2
+    - name: toolbox
+      image: registry.clemlab.com/clemlabprojects/cng/gitlab-toolbox-ce:v17.11.2
+    - name: gitaly
+      image: registry.clemlab.com/clemlabprojects/cng/gitaly:v17.11.2
+    - name: gitlab-shell
+      image: registry.clemlab.com/clemlabprojects/cng/gitlab-shell:v14.42.0
+    - name: gitlab-exporter
+      image: registry.clemlab.com/clemlabprojects/cng/gitlab-exporter:v17.11.2
+    - name: gitlab-pages
+      image: registry.clemlab.com/clemlabprojects/cng/gitlab-pages:v17.11.2
+    - name: gitlab-kas
+      image: registry.clemlab.com/clemlabprojects/cng/gitlab-kas:v17.11.2
+    - name: kubectl
+      image: registry.clemlab.com/clemlabprojects/cng/kubectl:v1.32.2-gitlab.1
+    - name: alpine-certificates
+      image: registry.clemlab.com/clemlabprojects/cng/alpine-certificates:20240705-r0
+    - name: cfssl-self-sign
+      image: registry.clemlab.com/clemlabprojects/cng/cfssl-self-sign:1.6.6
+    # --- GitLab cloud-native mirror images (postgres + redis bundled sub-charts) ---
+    - name: postgresql
+      image: registry.clemlab.com/clemlabprojects/gitlab-mirror/postgresql:16.8
+    - name: redis
+      image: registry.clemlab.com/clemlabprojects/gitlab-mirror/redis:7.0.15
+    # --- MinIO (object storage for artifacts, LFS, uploads, packages) ---
+    - name: minio
+      image: registry.clemlab.com/clemlabprojects/minio/minio:RELEASE.2024-07-04T14-25-45Z
+    - name: minio-mc
+      image: registry.clemlab.com/clemlabprojects/minio/mc:RELEASE.2024-07-04T14-25-45Z
+  licenses: MIT
+apiVersion: v2
+appVersion: "17.11.2"
+description: >
+  GitLab CE (Community Edition) — self-hosted Git repository manager with CI/CD,
+  issue tracking, and container registry. This is the clemlab registry wrapper around
+  the official gitlab/gitlab chart, with all images pre-mirrored to registry.clemlab.com
+  for offline / air-gapped cluster deployments.
+home: https://gitlab.com
+icon: https://about.gitlab.com/images/press/logo/png/gitlab-icon-rgb.png
+keywords:
+  - gitlab
+  - git
+  - devops
+  - gitops
+  - ci-cd
+maintainers:
+  - name: clemlab
+    email: odp@clemlab.com
+    url: https://github.com/clemlabprojects
+name: gitlab
+sources:
+  - https://gitlab.com/gitlab-org/charts/gitlab
+  - https://charts.gitlab.io
+dependencies:
+  - name: gitlab
+    version: "8.11.2"
+    repository: https://charts.gitlab.io
+version: 8.11.2

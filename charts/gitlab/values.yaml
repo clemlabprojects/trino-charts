@@ -1,0 +1,171 @@
+# clemlab GitLab CE chart — values.yaml
+# Wraps the official gitlab/gitlab chart; all image references redirect to
+# registry.clemlab.com/clemlabprojects so installs work in air-gapped clusters.
+#
+# Usage:
+#   helm install gitlab oci://registry.clemlab.com/clemlabprojects/charts/gitlab \
+#     --version 8.11.2 \
+#     --set gitlab.global.hosts.domain=dev21.hadoop.clemlab.com \
+#     --set gitlab.global.hosts.https=false \
+#     -n devtools --create-namespace
+#
+# All values must be nested under "gitlab:" because the upstream chart is a
+# Helm subchart named "gitlab" in this wrapper.
+
+gitlab:
+  # ---------------------------------------------------------------------------
+  # Global settings — domain, TLS, image pull, storage
+  # ---------------------------------------------------------------------------
+  global:
+    # Set this to your cluster domain. GitLab will be reachable at gitlab.<domain>.
+    hosts:
+      domain: "changeme.example.com"
+      https: false
+
+    ingress:
+      configureCertmanager: false
+      tls:
+        enabled: false
+
+    imagePullSecrets:
+      - name: regcred
+
+    # ---------------------------------------------------------------------------
+    # CNG image base — all GitLab-own images (webservice, gitaly, sidekiq, etc.)
+    # are pulled from this base registry path.
+    # Upstream default: registry.gitlab.com/gitlab-org/build/cng
+    # ---------------------------------------------------------------------------
+    gitlabBase: registry.clemlab.com/clemlabprojects/cng
+
+    # ---------------------------------------------------------------------------
+    # External PostgreSQL & Redis — can point to the clemlab OCI charts or keep
+    # the bundled ones (see postgresql/redis sections below).
+    # ---------------------------------------------------------------------------
+    psql:
+      password:
+        secret: gitlab-postgres-password
+        key: password
+
+    minio:
+      enabled: true
+      credentials:
+        secret: gitlab-minio-secret
+
+  # ---------------------------------------------------------------------------
+  # Disable bundled add-ons not needed for a dev/gitops install.
+  # Re-enable individually with a values override as your needs grow.
+  # ---------------------------------------------------------------------------
+  certmanager:
+    install: false
+
+  nginx-ingress:
+    enabled: false            # Use the cluster's own ingress controller.
+
+  prometheus:
+    install: false            # Use the cluster-wide kube-prometheus-stack instead.
+
+  gitlab-runner:
+    install: false            # Install separately when CI/CD is needed.
+
+  registry:
+    enabled: false            # Disable the container registry for minimal installs.
+
+  gitlab-pages:
+    enabled: false
+
+  kas:
+    enabled: false            # GitLab Agent Server — enable when using the GitLab Agent.
+
+  # ---------------------------------------------------------------------------
+  # MinIO — object storage for artifacts, LFS blobs, uploads, packages.
+  # Image overridden to use the clemlab mirror.
+  # ---------------------------------------------------------------------------
+  minio:
+    image: registry.clemlab.com/clemlabprojects/minio/minio
+    minioMc:
+      image: registry.clemlab.com/clemlabprojects/minio/mc
+
+  # ---------------------------------------------------------------------------
+  # Bundled PostgreSQL (gitlab-org cloud-native mirror).
+  # Override image to use the clemlab mirror.
+  # To use the clemlab OCI postgresql chart instead, set postgresql.install: false
+  # and configure global.psql.* to point at an external instance.
+  # ---------------------------------------------------------------------------
+  postgresql:
+    install: true
+    image:
+      registry: registry.clemlab.com/clemlabprojects/gitlab-mirror
+      repository: postgresql
+      tag: "16.8"
+
+  # ---------------------------------------------------------------------------
+  # Bundled Redis (gitlab-org cloud-native mirror).
+  # ---------------------------------------------------------------------------
+  redis:
+    install: true
+    master:
+      image:
+        registry: registry.clemlab.com/clemlabprojects/gitlab-mirror
+        repository: redis
+        tag: "7.0.15"
+
+  # ---------------------------------------------------------------------------
+  # Per-component image overrides.
+  # The gitlabBase global above covers most CNG images; list explicit overrides
+  # here only when a component tag differs from the main GitLab release.
+  # ---------------------------------------------------------------------------
+  gitlab:
+    gitaly:
+      image:
+        repository: registry.clemlab.com/clemlabprojects/cng/gitaly
+        tag: v17.11.2
+
+    gitlab-shell:
+      image:
+        repository: registry.clemlab.com/clemlabprojects/cng/gitlab-shell
+        tag: v14.42.0
+
+    toolbox:
+      backups:
+        cron:
+          enabled: false     # Disable backup cron for dev.
+      image:
+        repository: registry.clemlab.com/clemlabprojects/cng/gitlab-toolbox-ce
+        tag: v17.11.2
+
+    webservice:
+      image:
+        repository: registry.clemlab.com/clemlabprojects/cng/gitlab-webservice-ce
+        tag: v17.11.2
+      workhorse:
+        image: registry.clemlab.com/clemlabprojects/cng/gitlab-workhorse-ce
+        tag: v17.11.2
+
+    sidekiq:
+      image:
+        repository: registry.clemlab.com/clemlabprojects/cng/gitlab-sidekiq-ce
+        tag: v17.11.2
+
+    migrations:
+      image:
+        repository: registry.clemlab.com/clemlabprojects/cng/gitlab-toolbox-ce
+        tag: v17.11.2
+
+  # ---------------------------------------------------------------------------
+  # Shared utility images used across init containers.
+  # ---------------------------------------------------------------------------
+  shared-secrets:
+    selfsign:
+      image:
+        repository: registry.clemlab.com/clemlabprojects/cng/cfssl-self-sign
+        tag: "1.6.6"
+
+  global:
+    certificates:
+      image:
+        repository: registry.clemlab.com/clemlabprojects/cng/alpine-certificates
+        tag: 20240705-r0
+    kubectl:
+      image:
+        repository: registry.clemlab.com/clemlabprojects/cng/kubectl
+        tag: v1.32.2-gitlab.1
