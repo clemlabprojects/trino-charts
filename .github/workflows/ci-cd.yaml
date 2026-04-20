@@ -115,6 +115,25 @@ jobs:
       - name: Run gateway tests
         run: ./tests/gateway/test.sh ${{ matrix.args }}
 
+  test-ollama:
+    runs-on: ubuntu-latest
+    name: test ollama ${{ matrix.label }}
+    needs: [changes]
+    if: ${{needs.changes.outputs.ollama-changed == 'true'}}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { label: default, args: '' }
+    steps:
+      - uses: actions/checkout@v5
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.19.0
+      - name: Run ollama tests
+        run: ./tests/ollama/test.sh ${{ matrix.args }}
+
   docs:
     runs-on: ubuntu-latest
     steps:
@@ -126,7 +145,7 @@ jobs:
 
   # Everything above is CI, everything here and below is for releases and runs only on non-pull-request events
   sync-readme:
-    needs: [lint, test, test-gateway, docs]
+    needs: [lint, test, test-gateway, test-ollama, docs]
     runs-on: ubuntu-latest
     if: ${{ always() && !failure() && github.event_name != 'pull_request'}}
     steps:
@@ -155,7 +174,7 @@ jobs:
           git push
 
   release:
-    needs: [lint, test, test-gateway, docs, sync-readme]
+    needs: [lint, test, test-gateway, test-ollama, docs, sync-readme]
     runs-on: ubuntu-latest
     if: ${{ always() && !failure() && github.event_name != 'pull_request'}}
     steps:
