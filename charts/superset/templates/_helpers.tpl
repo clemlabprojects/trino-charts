@@ -347,8 +347,9 @@ release: {{ .Release.Name }}
 
 {{/* Common truststore snippets for TLS-enabled workloads */}}
 {{- define "superset.truststore.env" -}}
-{{- if and .Values.global.security.tls.enabled .Values.global.security.tls.truststore.enabled .Values.global.security.tls.truststoreSecret }}
-{{- $tls := .Values.global.security.tls | default dict -}}
+{{- $tls := ((((.Values.global).security).tls) | default dict) -}}
+{{- $truststore := ($tls.truststore | default dict) -}}
+{{- if and $tls.enabled $truststore.enabled $tls.truststoreSecret }}
 {{- $env := $tls.env | default dict -}}
 {{- $pathEnv := default "TRUSTSTORE_PATH" $env.pathEnv -}}
 {{- $mountPath := default "/etc/security/truststore/ca.crt" $tls.mountPath -}}
@@ -358,22 +359,26 @@ release: {{ .Release.Name }}
 {{- end }}
 
 {{- define "superset.truststore.volumeMount" -}}
-{{- if and .Values.global.security.tls.enabled .Values.global.security.tls.truststore.enabled .Values.global.security.tls.truststoreSecret }}
+{{- $tls := ((((.Values.global).security).tls) | default dict) -}}
+{{- $truststore := ($tls.truststore | default dict) -}}
+{{- if and $tls.enabled $truststore.enabled $tls.truststoreSecret }}
 - name: truststore
-  mountPath: {{ default "/etc/security/truststore/ca.crt" .Values.global.security.tls.mountPath | quote }}
-  subPath: {{ default "ca.crt" .Values.global.security.tls.truststore.pemKey | quote }}
+  mountPath: {{ default "/etc/security/truststore/ca.crt" $tls.mountPath | quote }}
+  subPath: {{ default "ca.crt" $truststore.pemKey | quote }}
   readOnly: true
 {{- end }}
 {{- end }}
 
 {{- define "superset.truststore.volume" -}}
-{{- if and .Values.global.security.tls.enabled .Values.global.security.tls.truststore.enabled .Values.global.security.tls.truststoreSecret }}
+{{- $tls := ((((.Values.global).security).tls) | default dict) -}}
+{{- $truststore := ($tls.truststore | default dict) -}}
+{{- if and $tls.enabled $truststore.enabled $tls.truststoreSecret }}
 - name: truststore
   secret:
-    secretName: {{ .Values.global.security.tls.truststoreSecret }}
+    secretName: {{ $tls.truststoreSecret }}
     items:
-      - key: {{ default "ca.crt" .Values.global.security.tls.truststore.pemKey }}
-        path: {{ default "ca.crt" .Values.global.security.tls.truststore.pemKey }}
+      - key: {{ default "ca.crt" $truststore.pemKey }}
+        path: {{ default "ca.crt" $truststore.pemKey }}
 {{- end }}
 {{- end }}
 

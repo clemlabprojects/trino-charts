@@ -101,7 +101,7 @@ vault:
     secretProviderClassName: ""
     readOnly: true
     objects: ""  # multiline string for SecretProviderClass parameters.objects
-        extraArgs: []              # additional args to append after kinit command
+    extraArgs: []              # additional args to append after kinit command
 
     tls:
       enabled: false
