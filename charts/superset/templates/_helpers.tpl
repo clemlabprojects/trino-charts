@@ -377,6 +377,34 @@ release: {{ .Release.Name }}
 {{- end }}
 {{- end }}
 
+{{/* Vault CSI helpers */}}
+{{- define "superset.vault.secretProviderClassName" -}}
+{{- if and .Values.vault .Values.vault.csi .Values.vault.csi.secretProviderClassName }}
+{{- .Values.vault.csi.secretProviderClassName -}}
+{{- else -}}
+{{- printf "%s-vault" (include "superset.fullname" .) -}}
+{{- end -}}
+{{- end }}
+
+{{- define "superset.vault.volumeMount" -}}
+{{- if and .Values.global.vault.enabled .Values.vault.csi.enabled }}
+- name: vault-secrets
+  mountPath: {{ default "/vault/secrets" .Values.vault.csi.mountPath | quote }}
+  readOnly: {{ default true .Values.vault.csi.readOnly }}
+{{- end }}
+{{- end }}
+
+{{- define "superset.vault.volume" -}}
+{{- if and .Values.global.vault.enabled .Values.vault.csi.enabled }}
+- name: vault-secrets
+  csi:
+    driver: secrets-store.csi.k8s.io
+    readOnly: {{ default true .Values.vault.csi.readOnly }}
+    volumeAttributes:
+      secretProviderClass: {{ include "superset.vault.secretProviderClassName" . | quote }}
+{{- end }}
+{{- end }}
+
 
 {{/* Kerberos helpers: simple and explicit */}}
 

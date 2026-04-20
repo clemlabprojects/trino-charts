@@ -1,0 +1,29 @@
+ODP SQL Assistant — Ollama + Semantic Service
+=============================================
+
+Ollama is starting. Models listed in .Values.models.pull are being
+pre-pulled by the init container (this may take several minutes on first boot).
+
+Check readiness:
+  kubectl get pods -l app.kubernetes.io/instance={{ .Release.Name }} -n {{ .Release.Namespace }}
+
+Ollama API (port {{ .Values.service.port }}):
+{{- if .Values.ingress.enabled }}
+  http{{ if .Values.ingress.tls }}s{{ end }}://{{ (index .Values.ingress.hosts 0).host }}/api/tags
+{{- else if eq .Values.service.type "ClusterIP" }}
+  kubectl port-forward svc/{{ include "ollama.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }} -n {{ .Release.Namespace }}
+  curl http://localhost:{{ .Values.service.port }}/api/tags
+{{- end }}
+
+{{- if .Values.sqlAssistant.enabled }}
+
+SQL Assistant Semantic Service (port {{ .Values.sqlAssistant.port }}):
+  kubectl port-forward svc/{{ include "ollama.fullname" . }} {{ .Values.sqlAssistant.port }}:{{ .Values.sqlAssistant.port }} -n {{ .Release.Namespace }}
+  curl http://localhost:{{ .Values.sqlAssistant.port }}/health
+
+Configure the Ambari view parameter:
+  sql.assistant.semantic.service.url = http://{{ include "ollama.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.sqlAssistant.port }}
+{{- end }}
+
+Pull additional models at any time:
+  kubectl exec -it deployment/{{ include "ollama.fullname" . }} -c ollama -n {{ .Release.Namespace }} -- ollama pull <model>

@@ -149,6 +149,7 @@ spec:
             {{- end }}
             {{- include "superset.truststore.volumeMount" . | nindent 12 }}
             {{- include "superset.kerberos.volumeMounts" . | nindent 12 }}
+            {{- include "superset.vault.volumeMount" . | nindent 12 }}
           ports:
             - name: http
               containerPort: {{ .Values.service.port }}
@@ -213,3 +214,4 @@ spec:
         {{- end }}
         {{ include "superset.truststore.volume" . | nindent 8 }}
         {{ include "superset.kerberos.volumes" . | nindent 8 }}
+        {{ include "superset.vault.volume" . | nindent 8 }}

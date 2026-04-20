@@ -105,6 +105,7 @@ spec:
               subPath: config.json
               readOnly: true
             {{ include "superset.truststore.volumeMount" . | nindent 12 }}
+            {{ include "superset.vault.volumeMount" . | nindent 12 }}
           resources:
             {{- if .Values.supersetWebsockets.resources }}
               {{- toYaml .Values.supersetWebsockets.resources | nindent 12 }}
@@ -155,4 +156,5 @@ spec:
           secret:
             secretName: "{{ template "superset.fullname" . }}-ws-config"
         {{ include "superset.truststore.volume" . | nindent 8 }}
+        {{ include "superset.vault.volume" . | nindent 8 }}
 {{- end }}

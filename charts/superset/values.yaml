@@ -78,6 +78,29 @@ global:
           repository: ""           # empty -> reuse main superset image
           tag: ""                  # empty -> reuse main superset image tag
           pullPolicy: IfNotPresent
+
+  vault:
+    enabled: false
+    address: ""
+    namespace: ""
+    auth:
+      method: kubernetes   # kubernetes | approle
+      mountPath: kubernetes
+      kubernetes:
+        role: ""
+      approle:
+        roleId: ""
+        secretId: ""
+    csi:
+      caCertSecret: ""
+
+vault:
+  csi:
+    enabled: false
+    mountPath: /vault/secrets
+    secretProviderClassName: ""
+    readOnly: true
+    objects: ""  # multiline string for SecretProviderClass parameters.objects
         extraArgs: []              # additional args to append after kinit command
 
     tls:

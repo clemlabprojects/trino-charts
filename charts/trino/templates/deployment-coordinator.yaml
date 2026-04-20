@@ -196,6 +196,7 @@ spec:
             secretName: {{ .Values.hadoopConf.secretName }}
         {{- end }}
         {{ include "trino.truststore.volume" . | nindent 8 }}
+        {{ include "trino.vault.volume" . | nindent 8 }}
         {{- with .Values.coordinator.additionalVolumes }}
         {{- tpl (. | toYaml) $ | nindent 8 }}
         {{- end }}
@@ -384,6 +385,7 @@ spec:
               mountPath: {{ .Values.hadoopConf.mountPath | default "/etc/hadoop/conf" }}
             {{- end }}
             {{ include "trino.truststore.volumeMount" . | nindent 12 }}
+            {{ include "trino.vault.volumeMount" . | nindent 12 }}
             ## ---------- Kerberos krb5.conf mount ----------
             {{- if and .Values.global.security.kerberos.enabled .Values.global.security.kerberos.configMapName }}
             - name: krb5-conf

@@ -305,3 +305,31 @@ Returns "true" when Ranger integration should be enabled (based on accessControl
         path: {{ ternary (default "ca.crt" .Values.global.security.tls.truststore.pemKey) (default "truststore.jks" .Values.global.security.tls.truststoreKey) (eq (default "jks" .Values.global.security.tls.truststore.format | lower) "pem") }}
 {{- end }}
 {{- end }}
+
+{{/* Vault CSI helpers */}}
+{{- define "trino.vault.secretProviderClassName" -}}
+{{- if and .Values.vault .Values.vault.csi .Values.vault.csi.secretProviderClassName }}
+{{- .Values.vault.csi.secretProviderClassName -}}
+{{- else -}}
+{{- printf "%s-vault" (include "trino.fullname" .) -}}
+{{- end -}}
+{{- end }}
+
+{{- define "trino.vault.volumeMount" -}}
+{{- if and .Values.global.vault.enabled .Values.vault.csi.enabled }}
+- name: vault-secrets
+  mountPath: {{ default "/vault/secrets" .Values.vault.csi.mountPath | quote }}
+  readOnly: {{ default true .Values.vault.csi.readOnly }}
+{{- end }}
+{{- end }}
+
+{{- define "trino.vault.volume" -}}
+{{- if and .Values.global.vault.enabled .Values.vault.csi.enabled }}
+- name: vault-secrets
+  csi:
+    driver: secrets-store.csi.k8s.io
+    readOnly: {{ default true .Values.vault.csi.readOnly }}
+    volumeAttributes:
+      secretProviderClass: {{ include "trino.vault.secretProviderClassName" . | quote }}
+{{- end }}
+{{- end }}

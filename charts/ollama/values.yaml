@@ -1,0 +1,126 @@
+# Default values for the Ollama Helm chart.
+# Override per-environment with -f values-<env>.yaml or --set.
+
+replicaCount: 1
+
+# imagePullSecrets for private registries (e.g. registry.clemlab.com)
+imagePullSecrets: []
+  # - name: registry-credentials
+
+image:
+  repository: ollama/ollama
+  tag: ""          # defaults to Chart appVersion
+  pullPolicy: IfNotPresent
+
+# ── Model configuration ────────────────────────────────────────────────────
+# Models to pull on startup via an init container.
+# Set to [] to skip pre-pull (user pulls manually via CLI/API).
+models:
+  pull:
+    - sqlcoder:7b          # primary model for SQL Assistant
+    # - llama3.1:8b        # general-purpose alternative
+    # - mistral:7b
+
+# ── Service ────────────────────────────────────────────────────────────────
+service:
+  type: ClusterIP
+  port: 11434
+
+# ── Ingress ────────────────────────────────────────────────────────────────
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: ollama.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+# ── Persistence ────────────────────────────────────────────────────────────
+persistence:
+  enabled: true
+  storageClass: ""          # "" = cluster default StorageClass
+  accessMode: ReadWriteOnce
+  size: 50Gi
+  # existingClaim: ""       # use an existing PVC instead
+
+# ── Resources ──────────────────────────────────────────────────────────────
+resources:
+  requests:
+    cpu: "2"
+    memory: "12Gi"
+  limits:
+    cpu: "8"
+    memory: "24Gi"
+    # nvidia.com/gpu: "1"   # uncomment for GPU nodes
+
+# ── GPU ────────────────────────────────────────────────────────────────────
+gpu:
+  enabled: false
+  # When enabled, adds nvidia.com/gpu resource limit and nodeSelector
+  nodeSelector: {}
+    # nvidia.com/gpu.product: Tesla-T4
+
+# ── Node placement ─────────────────────────────────────────────────────────
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# ── Security ───────────────────────────────────────────────────────────────
+securityContext:
+  runAsNonRoot: false   # Ollama needs root for some GPU operations
+  fsGroup: 1000
+
+podSecurityContext: {}
+
+# ── Liveness / readiness ───────────────────────────────────────────────────
+livenessProbe:
+  httpGet:
+    path: /api/tags
+    port: 11434
+  initialDelaySeconds: 30
+  periodSeconds: 30
+  timeoutSeconds: 10
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /api/tags
+    port: 11434
+  initialDelaySeconds: 15
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+# ── SQL Assistant sidecar ──────────────────────────────────────────────────
+# Deploy the Python semantic service as a sidecar alongside Ollama.
+sqlAssistant:
+  enabled: true
+  image:
+    repository: registry.clemlab.com/clemlabprojects/sql-assistant-service
+    tag: "1.0.0.0"
+    pullPolicy: IfNotPresent
+  port: 8095
+  env:
+    LLM_ADAPTER: "ollama"
+    OLLAMA_BASE_URL: "http://localhost:11434"
+    OLLAMA_MODEL: "sqlcoder:7b"
+    CATALOG_ADAPTER: "polaris_mcp"
+    POLARIS_MCP_URL: "http://polaris.odp.svc.cluster.local:8181"
+    LOG_LEVEL: "INFO"
+  resources:
+    requests:
+      cpu: "200m"
+      memory: "256Mi"
+    limits:
+      cpu: "1"
+      memory: "512Mi"
+  service:
+    port: 8095
+
+# ── ServiceMonitor (Prometheus) ────────────────────────────────────────────
+serviceMonitor:
+  enabled: false
+  interval: 30s

@@ -26,17 +26,17 @@ jobs:
       - name: Set up chart-testing
         uses: helm/chart-testing-action@v2.7.0
       - name: Lint charts
-        run: ct lint --charts=charts/trino,charts/gateway --validate-maintainers=false
+        run: ct lint --charts=charts/trino,charts/gateway,charts/ollama --validate-maintainers=false
 
   changes:
     runs-on: ubuntu-latest
-    name: changed trino/gateway files
+    name: changed charts files
     outputs:
       trino-changed: ${{ steps.filter.outputs.trino }}
       gateway-changed: ${{ steps.filter.outputs.gateway }}
+      ollama-changed: ${{ steps.filter.outputs.ollama }}
     steps:
       - uses: actions/checkout@v5
-      # Detect changes in trino/gatway files to conditionally run tests
       - name: Get changed related files
         uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36
         id: filter
@@ -54,6 +54,10 @@ jobs:
               - '.helmignore'
               - '.github/**'
               - '.gitignore'
+            ollama:
+              - 'charts/ollama/**'
+              - '.helmignore'
+              - '.github/**'
 
   test:
     runs-on: ubuntu-latest

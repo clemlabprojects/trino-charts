@@ -98,6 +98,29 @@ global:
           pathEnv: TRUSTSTORE_PATH
           passwordEnv: TRUSTSTORE_PASSWORD
 
+  vault:
+    enabled: false
+    address: ""
+    namespace: ""
+    auth:
+      method: kubernetes   # kubernetes | approle
+      mountPath: kubernetes
+      kubernetes:
+        role: ""
+      approle:
+        roleId: ""
+        secretId: ""
+    csi:
+      caCertSecret: ""
+
+vault:
+  csi:
+    enabled: false
+    mountPath: /vault/secrets
+    secretProviderClassName: ""
+    readOnly: true
+    objects: ""  # multiline string for SecretProviderClass parameters.objects
+
 
 accessControl:
   # 'configmap' keeps your current behavior; set to 'ranger' to enable Ranger integration

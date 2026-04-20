@@ -121,6 +121,7 @@ spec:
               {{- tpl (toYaml .) $ | nindent 12 }}
             {{- end }}
             {{ include "superset.truststore.volumeMount" . | nindent 12 }}
+            {{ include "superset.vault.volumeMount" . | nindent 12 }}
           resources:
             {{- if .Values.supersetCeleryBeat.resources }}
               {{- toYaml .Values.supersetCeleryBeat.resources | nindent 12 }}
@@ -170,4 +171,5 @@ spec:
           {{- tpl (toYaml .) $ | nindent 8 -}}
         {{- end }}
         {{ include "superset.truststore.volume" . | nindent 8 }}
+        {{ include "superset.vault.volume" . | nindent 8 }}
 {{- end -}}

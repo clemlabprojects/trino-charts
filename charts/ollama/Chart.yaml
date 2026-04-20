@@ -1,0 +1,17 @@
+apiVersion: v2
+name: ollama
+description: |
+  Ollama LLM inference server for the ODP SQL Assistant.
+  Deploys the Ollama server with optional model pre-pull and GPU node selector.
+type: application
+version: 0.1.0
+appVersion: "0.5.13"
+home: https://ollama.ai
+keywords:
+  - llm
+  - ai
+  - sql-assistant
+  - ollama
+maintainers:
+  - name: ClemLab
+    url: https://clemlab.com

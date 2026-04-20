@@ -85,6 +85,7 @@ spec:
           {{- with .Values.extraVolumeMounts }}
             {{- tpl (toYaml .) $ | nindent 10 -}}
           {{- end }}
+          {{- include "superset.vault.volumeMount" . | nindent 10 }}
         command: {{  tpl (toJson .Values.init.command) . }}
         resources: {{- toYaml .Values.init.resources | nindent 10 }}
       {{- if .Values.init.extraContainers }}
@@ -132,5 +133,6 @@ spec:
         {{- with .Values.extraVolumes }}
           {{- tpl (toYaml .) $ | nindent 8 -}}
         {{- end }}
+        {{- include "superset.vault.volume" . | nindent 8 }}
       restartPolicy: Never
 {{- end }}
