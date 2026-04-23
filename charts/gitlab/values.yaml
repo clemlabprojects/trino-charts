@@ -28,14 +28,30 @@ gitlab:
         enabled: false
 
     imagePullSecrets:
-      - name: regcred
+      - regcred
 
-    # ---------------------------------------------------------------------------
-    # CNG image base — all GitLab-own images (webservice, gitaly, sidekiq, etc.)
-    # are pulled from this base registry path.
-    # Upstream default: registry.gitlab.com/gitlab-org/build/cng
-    # ---------------------------------------------------------------------------
-    gitlabBase: registry.clemlab.com/clemlabprojects/cng
+    image:
+      pullSecrets:
+        - name: regcred
+
+    # GitLab base init image.
+    gitlabBase:
+      image:
+        repository: registry.clemlab.com/clemlabprojects/cng/gitlab-base
+        tag: v17.11.2
+
+    # Shared utility images used by init containers and hooks.
+    certificates:
+      image:
+        repository: registry.clemlab.com/clemlabprojects/cng/certificates
+        tag: v17.11.2
+    kubectl:
+      image:
+        repository: registry.clemlab.com/clemlabprojects/cng/kubectl
+        tag: v17.11.2
+
+    kas:
+      enabled: false
 
     # ---------------------------------------------------------------------------
     # External PostgreSQL & Redis — can point to the clemlab OCI charts or keep
@@ -82,11 +98,13 @@ gitlab:
   # ---------------------------------------------------------------------------
   minio:
     image: registry.clemlab.com/clemlabprojects/minio/minio
+    imageTag: RELEASE.2017-12-28T01-21-00Z
     minioMc:
       image: registry.clemlab.com/clemlabprojects/minio/mc
+      tag: RELEASE.2018-07-13T00-53-22Z
 
   # ---------------------------------------------------------------------------
-  # Bundled PostgreSQL (gitlab-org cloud-native mirror).
+  # Bundled PostgreSQL.
   # Override image to use the clemlab mirror.
   # To use the clemlab OCI postgresql chart instead, set postgresql.install: false
   # and configure global.psql.* to point at an external instance.
@@ -94,25 +112,32 @@ gitlab:
   postgresql:
     install: true
     image:
-      registry: registry.clemlab.com/clemlabprojects/gitlab-mirror
-      repository: postgresql
-      tag: "16.8"
+      registry: registry.clemlab.com/clemlabprojects
+      repository: bitnamilegacy/postgresql
+      tag: "14.8.0"
+    metrics:
+      image:
+        registry: registry.clemlab.com/clemlabprojects
+        repository: bitnamilegacy/postgres-exporter
+        tag: 0.14.0-debian-11-r2
 
   # ---------------------------------------------------------------------------
-  # Bundled Redis (gitlab-org cloud-native mirror).
+  # Bundled Redis.
   # ---------------------------------------------------------------------------
   redis:
     install: true
-    master:
+    image:
+      registry: registry.clemlab.com/clemlabprojects
+      repository: bitnamilegacy/redis
+      tag: 7.2.4-debian-12-r9
+    metrics:
       image:
-        registry: registry.clemlab.com/clemlabprojects/gitlab-mirror
-        repository: redis
-        tag: "7.0.15"
+        registry: registry.clemlab.com/clemlabprojects
+        repository: bitnamilegacy/redis-exporter
+        tag: 1.58.0-debian-12-r4
 
   # ---------------------------------------------------------------------------
   # Per-component image overrides.
-  # The gitlabBase global above covers most CNG images; list explicit overrides
-  # here only when a component tag differs from the main GitLab release.
   # ---------------------------------------------------------------------------
   gitlab:
     gitaly:
@@ -124,6 +149,11 @@ gitlab:
       image:
         repository: registry.clemlab.com/clemlabprojects/cng/gitlab-shell
         tag: v14.42.0
+
+    gitlab-exporter:
+      image:
+        repository: registry.clemlab.com/clemlabprojects/cng/gitlab-exporter
+        tag: 15.3.0
 
     toolbox:
       backups:
@@ -158,14 +188,4 @@ gitlab:
     selfsign:
       image:
         repository: registry.clemlab.com/clemlabprojects/cng/cfssl-self-sign
-        tag: "1.6.6"
-
-  global:
-    certificates:
-      image:
-        repository: registry.clemlab.com/clemlabprojects/cng/alpine-certificates
-        tag: 20240705-r0
-    kubectl:
-      image:
-        repository: registry.clemlab.com/clemlabprojects/cng/kubectl
-        tag: v1.32.2-gitlab.1
+        tag: v17.11.2

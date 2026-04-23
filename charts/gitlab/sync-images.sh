@@ -16,11 +16,11 @@
 # Authentication:
 #   Log in to the destination registry before running:
 #     skopeo login registry.clemlab.com -u <user> -p <token>
-#   Source registries (gitlab, docker hub, minio) are public; no login needed.
+#   Source registries used here are public; no login needed.
 #
 # What this script does:
 #   1. Copies GitLab CNG images          registry.gitlab.com/gitlab-org/build/cng → clemlabprojects/cng
-#   2. Copies GitLab mirror images       registry.gitlab.com/gitlab-org/cloud-native/mirror → clemlabprojects/gitlab-mirror
+#   2. Copies Bitnami legacy images      docker.io/bitnamilegacy → clemlabprojects/bitnamilegacy
 #   3. Copies MinIO images               docker.io/minio → clemlabprojects/minio
 #
 # After this script completes, update Chart.yaml annotations.images with the
@@ -28,10 +28,10 @@
 # ---------------------------------------------------------------------------
 set -euo pipefail
 
-DEST_REGISTRY="registry.clemlab.com/clemlabprojects"
+DEST_REGISTRY="${DEST_REGISTRY:-${HARBOR_NS:-registry.clemlab.com/clemlabprojects}}"
 GITLAB_VERSION="${GITLAB_VERSION:-v17.11.2}"
 CNG_SRC="registry.gitlab.com/gitlab-org/build/cng"
-MIRROR_SRC="registry.gitlab.com/gitlab-org/cloud-native/mirror"
+BITNAMI_LEGACY_SRC="docker.io/bitnamilegacy"
 
 DRY_RUN=false
 
@@ -77,12 +77,12 @@ copy_image() {
 echo "=== GitLab CNG images (${GITLAB_VERSION}) ==="
 
 CNG_IMAGES=(
+  "gitlab-base:${GITLAB_VERSION}"
   "gitlab-webservice-ce:${GITLAB_VERSION}"
   "gitlab-workhorse-ce:${GITLAB_VERSION}"
   "gitlab-sidekiq-ce:${GITLAB_VERSION}"
   "gitlab-toolbox-ce:${GITLAB_VERSION}"
   "gitaly:${GITLAB_VERSION}"
-  "gitlab-exporter:${GITLAB_VERSION}"
   "gitlab-pages:${GITLAB_VERSION}"
   "gitlab-kas:${GITLAB_VERSION}"
 )
@@ -96,27 +96,37 @@ done
 # Shell and kubectl versions are independent of the GitLab release tag.
 # Update these when upgrading the chart (check: helm show values gitlab/gitlab | grep -E 'shell|kubectl')
 SHELL_VERSION="${SHELL_VERSION:-v14.42.0}"
-KUBECTL_VERSION="${KUBECTL_VERSION:-v1.32.2-gitlab.1}"
-CERTS_VERSION="${CERTS_VERSION:-20240705-r0}"
-CFSSL_VERSION="${CFSSL_VERSION:-1.6.6}"
+GITLAB_EXPORTER_VERSION="${GITLAB_EXPORTER_VERSION:-15.3.0}"
+KUBECTL_VERSION="${KUBECTL_VERSION:-${GITLAB_VERSION}}"
+CERTS_VERSION="${CERTS_VERSION:-${GITLAB_VERSION}}"
+CFSSL_VERSION="${CFSSL_VERSION:-${GITLAB_VERSION}}"
 
 copy_image "${CNG_SRC}/gitlab-shell:${SHELL_VERSION}"             "${DEST_REGISTRY}/cng/gitlab-shell:${SHELL_VERSION}"
+copy_image "${CNG_SRC}/gitlab-exporter:${GITLAB_EXPORTER_VERSION}" "${DEST_REGISTRY}/cng/gitlab-exporter:${GITLAB_EXPORTER_VERSION}"
 copy_image "${CNG_SRC}/kubectl:${KUBECTL_VERSION}"                "${DEST_REGISTRY}/cng/kubectl:${KUBECTL_VERSION}"
-copy_image "${CNG_SRC}/alpine-certificates:${CERTS_VERSION}"      "${DEST_REGISTRY}/cng/alpine-certificates:${CERTS_VERSION}"
+copy_image "${CNG_SRC}/certificates:${CERTS_VERSION}"             "${DEST_REGISTRY}/cng/certificates:${CERTS_VERSION}"
 copy_image "${CNG_SRC}/cfssl-self-sign:${CFSSL_VERSION}"          "${DEST_REGISTRY}/cng/cfssl-self-sign:${CFSSL_VERSION}"
 
 # ---------------------------------------------------------------------------
-# 2. GitLab cloud-native mirror images (bundled PostgreSQL & Redis)
-#    Source:  registry.gitlab.com/gitlab-org/cloud-native/mirror/<image>:<tag>
-#    Dest:    registry.clemlab.com/clemlabprojects/gitlab-mirror/<image>:<tag>
+# 2. Bitnami legacy images used by bundled PostgreSQL & Redis
+#    Source:  docker.io/bitnamilegacy/<image>:<tag>
+#    Dest:    registry.clemlab.com/clemlabprojects/bitnamilegacy/<image>:<tag>
 # ---------------------------------------------------------------------------
-echo "=== GitLab cloud-native mirror (bundled PostgreSQL + Redis) ==="
+echo "=== Bitnami legacy images (bundled PostgreSQL + Redis) ==="
 
-PG_VERSION="${PG_VERSION:-16.8}"
-REDIS_VERSION="${REDIS_VERSION:-7.0.15}"
+POSTGRESQL_VERSION="${POSTGRESQL_VERSION:-14.8.0}"
+POSTGRES_EXPORTER_VERSION="${POSTGRES_EXPORTER_VERSION:-0.14.0-debian-11-r2}"
+REDIS_VERSION="${REDIS_VERSION:-7.2.4-debian-12-r9}"
+REDIS_EXPORTER_VERSION="${REDIS_EXPORTER_VERSION:-1.58.0-debian-12-r4}"
 
-copy_image "${MIRROR_SRC}/postgresql:${PG_VERSION}"   "${DEST_REGISTRY}/gitlab-mirror/postgresql:${PG_VERSION}"
-copy_image "${MIRROR_SRC}/redis:${REDIS_VERSION}"     "${DEST_REGISTRY}/gitlab-mirror/redis:${REDIS_VERSION}"
+copy_image "${BITNAMI_LEGACY_SRC}/postgresql:${POSTGRESQL_VERSION}" \
+           "${DEST_REGISTRY}/bitnamilegacy/postgresql:${POSTGRESQL_VERSION}"
+copy_image "${BITNAMI_LEGACY_SRC}/postgres-exporter:${POSTGRES_EXPORTER_VERSION}" \
+           "${DEST_REGISTRY}/bitnamilegacy/postgres-exporter:${POSTGRES_EXPORTER_VERSION}"
+copy_image "${BITNAMI_LEGACY_SRC}/redis:${REDIS_VERSION}" \
+           "${DEST_REGISTRY}/bitnamilegacy/redis:${REDIS_VERSION}"
+copy_image "${BITNAMI_LEGACY_SRC}/redis-exporter:${REDIS_EXPORTER_VERSION}" \
+           "${DEST_REGISTRY}/bitnamilegacy/redis-exporter:${REDIS_EXPORTER_VERSION}"
 
 # ---------------------------------------------------------------------------
 # 3. MinIO (object storage — artifacts, LFS, uploads, packages)
@@ -128,8 +138,8 @@ copy_image "${MIRROR_SRC}/redis:${REDIS_VERSION}"     "${DEST_REGISTRY}/gitlab-m
 # ---------------------------------------------------------------------------
 echo "=== MinIO ==="
 
-MINIO_TAG="${MINIO_TAG:-RELEASE.2024-07-04T14-25-45Z}"
-MC_TAG="${MC_TAG:-RELEASE.2024-07-04T14-25-45Z}"
+MINIO_TAG="${MINIO_TAG:-RELEASE.2017-12-28T01-21-00Z}"
+MC_TAG="${MC_TAG:-RELEASE.2018-07-13T00-53-22Z}"
 
 copy_image "docker.io/minio/minio:${MINIO_TAG}"   "${DEST_REGISTRY}/minio/minio:${MINIO_TAG}"
 copy_image "docker.io/minio/mc:${MC_TAG}"          "${DEST_REGISTRY}/minio/mc:${MC_TAG}"
