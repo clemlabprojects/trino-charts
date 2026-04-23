@@ -230,5 +230,5 @@ jobs:
           done
           for tgz in /tmp/helm-packages/*.tgz; do
             echo "Pushing ${tgz}..."
-            helm push "${tgz}" oci://registry.clemlab.com/clemlabprojects
+            helm push "${tgz}" oci://registry.clemlab.com/clemlabprojects/charts
           done
