@@ -73,18 +73,35 @@ Expand the name of the chart.
 {{- if eq $auth.mode "oidc" }}
 - name: SECURITY_OIDC_ISSUER
   value: {{ $auth.oidc.issuerUrl | quote }}
+{{- $oidcSecretRef := $auth.oidc.secretRef | default dict }}
+{{- if $oidcSecretRef.name }}
+{{- /* Ambari-managed: read clientId and clientSecret from K8s Secret via secretKeyRef
+     to avoid storing credentials in Helm release history. */}}
+- name: SECURITY_OIDC_CLIENT_ID
+  valueFrom:
+    secretKeyRef:
+      name: {{ $oidcSecretRef.name | quote }}
+      key: {{ default "client_id" $oidcSecretRef.clientIdKey | quote }}
+- name: SECURITY_OIDC_CLIENT_SECRET
+  valueFrom:
+    secretKeyRef:
+      name: {{ $oidcSecretRef.name | quote }}
+      key: {{ default "client_secret" $oidcSecretRef.clientSecretKey | quote }}
+{{- else }}
+{{- /* Manual / fallback: plain Helm values (operator-supplied) */}}
 - name: SECURITY_OIDC_CLIENT_ID
   value: {{ $auth.oidc.clientId | quote }}
 - name: SECURITY_OIDC_CLIENT_SECRET
   value: {{ $auth.oidc.clientSecret | quote }}
+{{- end }}
 - name: SECURITY_OIDC_SCOPES
-  value: {{ $auth.oidc.scopes | quote }}
+  value: {{ $auth.oidc.scopes | default "openid email profile" | quote }}
 - name: SECURITY_OIDC_REDIRECT_URI
   value: {{ $auth.oidc.redirectUri | quote }}
 - name: SECURITY_OIDC_USER_CLAIM
-  value: {{ $auth.oidc.userClaim | quote }}
+  value: {{ $auth.oidc.userClaim | default "preferred_username" | quote }}
 - name: SECURITY_OIDC_GROUPS_CLAIM
-  value: {{ $auth.oidc.groupsClaim | quote }}
+  value: {{ $auth.oidc.groupsClaim | default "groups" | quote }}
 - name: SECURITY_OIDC_SKIP_TLS_VERIFY
   value: {{ $auth.oidc.skipTlsVerify | default false | quote }}
 - name: SECURITY_OIDC_CA_SECRET

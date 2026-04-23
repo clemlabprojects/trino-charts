@@ -37,6 +37,34 @@ global:
     adminUsers: ""
     adminGroups: ""
 
+    # Authentication profile — set by Ambari K8S view OIDC provisioning.
+    # Supported modes: none | ldap | ad | oidc
+    auth:
+      mode: none
+      oidc:
+        # issuerUrl is set by Ambari dynamicValues (AMBARI_OIDC_ISSUER_URL)
+        issuerUrl: ""
+        # When secretRef.name is set (Ambari-managed), clientId/clientSecret are read from
+        # the K8s Secret via valueFrom.secretKeyRef rather than plain Helm values.
+        secretRef:
+          name: ""                  # e.g. superset-prod-oidc-client  (set by OIDC_CREATE_SECRET)
+          clientIdKey: "client_id"
+          clientSecretKey: "client_secret"
+        # Fallback direct values (used when secretRef.name is empty, e.g. manual config)
+        clientId: ""
+        clientSecret: ""
+        scopes: "openid email profile"
+        redirectUri: ""
+        userClaim: "preferred_username"
+        groupsClaim: "groups"
+        skipTlsVerify: false
+        caSecret: ""
+        # Vault CSI: when vault is enabled, optionally specify the Vault KV path where
+        # credentials were written by the OIDC_CREATE_SECRET step.
+        # The secretObjects section in vault-secretproviderclass.yaml will sync them
+        # back to a K8s Secret (name must match secretRef.name above).
+        vaultPath: ""
+
     # Labels the webhook uses (don’t change unless you changed the webhook env)
     admissionWebhook:
       injectKeytab:
