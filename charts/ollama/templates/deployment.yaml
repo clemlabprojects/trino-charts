@@ -23,9 +23,30 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
 
-      # ── Init container: pull models before server accepts traffic ──────────
-      {{- if .Values.models.pull }}
+      # ── Init containers: seed models before server accepts traffic ─────────
+      {{- if or .Values.models.pull .Values.models.seederImage }}
       initContainers:
+        {{- if .Values.models.seederImage }}
+        # Air-gapped seeder: copy pre-baked model blobs from the seeder image
+        # to the PVC.  Uses cp -rn so existing blobs are never overwritten
+        # (idempotent across pod restarts when the PVC already has models).
+        - name: model-seeder
+          image: {{ .Values.models.seederImage }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              echo "Seeding model blobs from image to PVC..."
+              mkdir -p /root/.ollama/models
+              cp -rn /root/.ollama/models/. /pvc-data/models/ 2>/dev/null || true
+              echo "Seed complete. Contents:"
+              ls /pvc-data/models/ 2>/dev/null || true
+          volumeMounts:
+            - name: ollama-data
+              mountPath: /pvc-data
+        {{- end }}
+        {{- if .Values.models.pull }}
         - name: model-puller
           image: {{ include "ollama.image" . }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
@@ -49,6 +70,7 @@ spec:
               mountPath: /root/.ollama
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
+        {{- end }}
       {{- end }}
 
       containers:

@@ -3,23 +3,32 @@
 
 replicaCount: 1
 
-# imagePullSecrets for private registries (e.g. registry.clemlab.com)
-imagePullSecrets: []
-  # - name: registry-credentials
+imagePullSecrets:
+  - name: registry-credentials
 
 image:
-  repository: ollama/ollama
+  repository: registry.clemlab.com/clemlabprojects/ollama/ollama
   tag: ""          # defaults to Chart appVersion
   pullPolicy: IfNotPresent
 
 # ── Model configuration ────────────────────────────────────────────────────
-# Models to pull on startup via an init container.
-# Set to [] to skip pre-pull (user pulls manually via CLI/API).
+# Online pull: fetch models from ollama.com at pod startup (requires internet).
+# Set to [] when using seederImage for air-gapped deployments.
 models:
   pull:
     - sqlcoder:7b          # primary model for SQL Assistant
     # - llama3.1:8b        # general-purpose alternative
     # - mistral:7b
+
+  # Air-gapped / offline model seeding:
+  # Set seederImage to a pre-built image (see build-models.sh) that has the
+  # model blobs baked in.  The chart will add an initContainer that copies
+  # /root/.ollama/models from the seeder image to the PVC before Ollama starts.
+  # When seederImage is set, set pull: [] to avoid an online pull attempt.
+  # Example:
+  #   pull: []
+  #   seederImage: "registry.clemlab.com/clemlabprojects/ollama/ollama-models:sqlcoder-7b-0.5.13"
+  seederImage: ""
 
 # ── Service ────────────────────────────────────────────────────────────────
 service:
