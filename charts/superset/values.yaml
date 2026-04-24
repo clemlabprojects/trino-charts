@@ -41,6 +41,25 @@ global:
     # Supported modes: none | ldap | ad | oidc
     auth:
       mode: none
+      ldap:
+        url: ""
+        bindDn: ""
+        bindPassword: ""
+        userDnTemplate: ""
+        userSearchFilter: ""
+        baseDn: ""
+        groupSearchBase: ""
+        groupSearchFilter: ""
+        groupAuthPattern: ""
+        referral: ""
+        startTls: false
+      ad:
+        url: ""
+        baseDn: ""
+        bindDn: ""
+        bindPassword: ""
+        userSearchFilter: ""
+        domain: ""
       oidc:
         # issuerUrl is set by Ambari dynamicValues (AMBARI_OIDC_ISSUER_URL)
         issuerUrl: ""

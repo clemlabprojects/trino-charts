@@ -54,6 +54,27 @@ gitlab:
       enabled: false
 
     # ---------------------------------------------------------------------------
+    # OmniAuth / SSO — wired by the Ambari KDPS OIDC registration step.
+    # The provider YAML is stored in the {releaseName}-omniauth-provider K8s secret,
+    # which is created automatically during service installation when a Keycloak OIDC
+    # realm is configured in Ambari.
+    # ---------------------------------------------------------------------------
+    appConfig:
+      omniauth:
+        enabled: false              # set to true by KDPS OIDC wiring
+        allowSingleSignOn:
+          - openid_connect
+        blockAutoCreatedUsers: false
+        syncProfileFromProvider:
+          - openid_connect
+        syncProfileAttributes:
+          - email
+        providers: []
+        # Providers entry injected by KDPS at install time:
+        # - secret: {releaseName}-omniauth-provider   (contains provider YAML)
+        #   key: provider
+
+    # ---------------------------------------------------------------------------
     # External PostgreSQL & Redis — can point to the clemlab OCI charts or keep
     # the bundled ones (see postgresql/redis sections below).
     # ---------------------------------------------------------------------------
@@ -98,10 +119,10 @@ gitlab:
   # ---------------------------------------------------------------------------
   minio:
     image: registry.clemlab.com/clemlabprojects/minio/minio
-    imageTag: RELEASE.2017-12-28T01-21-00Z
+    imageTag: RELEASE.2022-10-24T18-35-07Z
     minioMc:
       image: registry.clemlab.com/clemlabprojects/minio/mc
-      tag: RELEASE.2018-07-13T00-53-22Z
+      tag: RELEASE.2022-10-29T10-09-23Z
 
   # ---------------------------------------------------------------------------
   # Bundled PostgreSQL.

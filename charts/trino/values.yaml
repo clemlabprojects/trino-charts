@@ -82,6 +82,44 @@ global:
         needsKeytabLabelKey: security.clemlab.com/needs-keytab
         serviceLabelKey: security.clemlab.com/service
 
+    # Authentication profile — injected by Ambari K8S view global security profile.
+    # Supported modes: none | ldap | ad | oidc
+    auth:
+      mode: none
+      oidc:
+        issuerUrl: ""
+        secretRef:
+          name: ""               # set by OIDC_CREATE_SECRET step
+          clientIdKey: "client_id"
+          clientSecretKey: "client_secret"
+        clientId: ""
+        clientSecret: ""
+        scopes: "openid email profile"
+        redirectUri: ""
+        userClaim: "preferred_username"
+        groupsClaim: "groups"
+        skipTlsVerify: false
+        caSecret: ""
+      ldap:
+        url: ""
+        bindDn: ""
+        bindPassword: ""
+        userDnTemplate: ""
+        userSearchFilter: ""
+        baseDn: ""
+        groupSearchBase: ""
+        groupSearchFilter: ""
+        groupAuthPattern: ""
+        referral: ""
+        startTls: false
+      ad:
+        url: ""
+        baseDn: ""
+        bindDn: ""
+        bindPassword: ""
+        userSearchFilter: ""
+        domain: ""
+
     tls:
       enabled: false
       truststore:

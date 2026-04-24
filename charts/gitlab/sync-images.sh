@@ -138,8 +138,8 @@ copy_image "${BITNAMI_LEGACY_SRC}/redis-exporter:${REDIS_EXPORTER_VERSION}" \
 # ---------------------------------------------------------------------------
 echo "=== MinIO ==="
 
-MINIO_TAG="${MINIO_TAG:-RELEASE.2017-12-28T01-21-00Z}"
-MC_TAG="${MC_TAG:-RELEASE.2018-07-13T00-53-22Z}"
+MINIO_TAG="${MINIO_TAG:-RELEASE.2022-10-24T18-35-07Z}"
+MC_TAG="${MC_TAG:-RELEASE.2022-10-29T10-09-23Z}"
 
 copy_image "docker.io/minio/minio:${MINIO_TAG}"   "${DEST_REGISTRY}/minio/minio:${MINIO_TAG}"
 copy_image "docker.io/minio/mc:${MC_TAG}"          "${DEST_REGISTRY}/minio/mc:${MC_TAG}"

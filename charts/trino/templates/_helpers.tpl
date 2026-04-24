@@ -107,24 +107,41 @@ Create chart name and version as used by the chart label.
   value: {{ $auth.ad.domain | quote }}
 {{- end }}
 {{- if eq $auth.mode "oidc" }}
+{{- $oidc := $auth.oidc | default dict }}
+{{- $secretRef := $oidc.secretRef | default dict }}
 - name: TRINO_OIDC_ISSUER
-  value: {{ $auth.oidc.issuerUrl | quote }}
-- name: TRINO_OIDC_CLIENT_ID
-  value: {{ $auth.oidc.clientId | quote }}
-- name: TRINO_OIDC_CLIENT_SECRET
-  value: {{ $auth.oidc.clientSecret | quote }}
+  value: {{ $oidc.issuerUrl | quote }}
+{{- if $secretRef.name }}
+- name: OIDC_CLIENT_ID
+  valueFrom:
+    secretKeyRef:
+      name: {{ $secretRef.name | quote }}
+      key: {{ default "client_id" $secretRef.clientIdKey | quote }}
+- name: OIDC_CLIENT_SECRET
+  valueFrom:
+    secretKeyRef:
+      name: {{ $secretRef.name | quote }}
+      key: {{ default "client_secret" $secretRef.clientSecretKey | quote }}
+{{- else }}
+- name: OIDC_CLIENT_ID
+  value: {{ $oidc.clientId | quote }}
+- name: OIDC_CLIENT_SECRET
+  value: {{ $oidc.clientSecret | quote }}
+{{- end }}
 - name: TRINO_OIDC_SCOPES
-  value: {{ $auth.oidc.scopes | quote }}
+  value: {{ default "openid email profile" $oidc.scopes | quote }}
+{{- if $oidc.redirectUri }}
 - name: TRINO_OIDC_REDIRECT_URI
-  value: {{ $auth.oidc.redirectUri | quote }}
+  value: {{ $oidc.redirectUri | quote }}
+{{- end }}
 - name: TRINO_OIDC_USER_CLAIM
-  value: {{ $auth.oidc.userClaim | quote }}
+  value: {{ default "preferred_username" $oidc.userClaim | quote }}
+{{- if $oidc.groupsClaim }}
 - name: TRINO_OIDC_GROUPS_CLAIM
-  value: {{ $auth.oidc.groupsClaim | quote }}
+  value: {{ $oidc.groupsClaim | quote }}
+{{- end }}
 - name: TRINO_OIDC_SKIP_TLS_VERIFY
-  value: {{ $auth.oidc.skipTlsVerify | default false | quote }}
-- name: TRINO_OIDC_CA_SECRET
-  value: {{ $auth.oidc.caSecret | quote }}
+  value: {{ $oidc.skipTlsVerify | default false | quote }}
 {{- end }}
 {{- end }}
 {{- end -}}
