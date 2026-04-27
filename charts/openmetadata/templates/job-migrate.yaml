@@ -1,0 +1,82 @@
+{{/*
+Database bootstrap / migration job.
+Runs as a Helm pre-install + pre-upgrade hook so the schema is always current
+before the server pod starts. The job image is the same as the server — it
+invokes the built-in migrate CLI entrypoint.
+*/}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "openmetadata.fullname" . }}-migrate-{{ .Release.Revision }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "openmetadata.labels" . | nindent 4 }}
+    app.kubernetes.io/component: migrate
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-5"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 3
+  activeDeadlineSeconds: 600
+  template:
+    metadata:
+      labels:
+        {{- include "openmetadata.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: migrate
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: {{ include "openmetadata.serviceAccountName" . }}
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      initContainers:
+        - name: wait-for-db
+          image: {{ include "openmetadata.resolveImage" (dict "root" . "image" (dict "registry" "" "repository" "busybox" "tag" "1.36")) }}
+          command:
+            - sh
+            - -c
+            - |
+              until nc -z {{ include "openmetadata.dbHost" . }} {{ .Values.openmetadata.config.database.port }}; do
+                echo "waiting for PostgreSQL..."; sleep 3
+              done
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+      containers:
+        - name: migrate
+          image: {{ include "openmetadata.resolveImage" (dict "root" . "image" .Values.image) }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- with .Values.containerSecurityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          command:
+            - /bin/bash
+            - -c
+            - |
+              ./bin/openmetadata-server-start.sh migrate
+          envFrom:
+            - configMapRef:
+                name: {{ include "openmetadata.configMapName" . }}
+          env:
+            - name: DB_USER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "openmetadata.credentialsSecretName" . }}
+                  key: db-password
+          resources:
+            requests:
+              cpu: 200m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi

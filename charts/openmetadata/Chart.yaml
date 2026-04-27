@@ -1,0 +1,30 @@
+apiVersion: v2
+name: openmetadata
+description: Open-source metadata management platform — data discovery, lineage, quality and governance
+type: application
+version: 1.12.6
+appVersion: "1.12.6"
+icon: https://open-metadata.org/favicon.ico
+home: https://open-metadata.org
+keywords:
+  - metadata
+  - data catalog
+  - data lineage
+  - data governance
+  - data discovery
+sources:
+  - https://github.com/open-metadata/OpenMetadata
+  - https://github.com/open-metadata/openmetadata-helm-charts
+maintainers:
+  - name: clemlab
+    email: odp@clemlab.com
+    url: https://github.com/clemlabprojects
+dependencies:
+  - name: postgresql
+    version: "17.0.1"
+    repository: oci://registry.clemlab.com/clemlabprojects/charts
+    condition: postgresql.enabled
+  - name: opensearch
+    version: "2.18.0"
+    repository: oci://registry.clemlab.com/clemlabprojects/charts
+    condition: opensearch.enabled

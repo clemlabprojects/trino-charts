@@ -1,0 +1,84 @@
+{{/*
+Network policy: allow ingress from the ingress controller and from within the
+namespace; allow egress to MySQL, OpenSearch, and the Kerberos KDC (if enabled).
+Tighten as needed for your network topology.
+*/}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "openmetadata.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "openmetadata.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "openmetadata.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+
+  ingress:
+    # Allow traffic from ingress controller namespace
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+        - namespaceSelector:
+            matchLabels:
+              network.openshift.io/policy-group: ingress
+      ports:
+        - protocol: TCP
+          port: {{ .Values.openmetadata.config.port }}
+        {{- if .Values.openmetadata.config.tls.enabled }}
+        - protocol: TCP
+          port: {{ .Values.openmetadata.config.tls.port }}
+        {{- end }}
+    # Allow intra-namespace (e.g. Airflow ingestion → server API)
+    - from:
+        - podSelector: {}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.openmetadata.config.port }}
+        - protocol: TCP
+          port: {{ .Values.openmetadata.config.adminPort }}
+
+  egress:
+    # PostgreSQL
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: postgresql
+      ports:
+        - protocol: TCP
+          port: {{ .Values.openmetadata.config.database.port }}
+    # OpenSearch
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: opensearch
+      ports:
+        - protocol: TCP
+          port: {{ .Values.openmetadata.config.elasticsearch.port }}
+    # DNS
+    - ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # OIDC / LDAP / external auth providers — allow HTTPS egress
+    - ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 389
+        - protocol: TCP
+          port: 636
+    # Kerberos KDC
+    {{- if .Values.global.security.kerberos.enabled }}
+    - ports:
+        - protocol: TCP
+          port: 88
+        - protocol: UDP
+          port: 88
+    {{- end }}

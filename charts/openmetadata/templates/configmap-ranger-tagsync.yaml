@@ -1,0 +1,85 @@
+{{- if .Values.ranger.tagSync.enabled -}}
+{{/*
+ConfigMap consumed by the Ranger TagSync daemon for the OpenMetadata REST source.
+
+RANGER-4978 adds org.apache.ranger.tagsync.source.openmetadatarest.OpenmetadataRESTTagSource
+as a first-class TagSync source.  The daemon reads these properties from
+ranger-tagsync-site.xml, polls the OpenMetadata API every downloadIntervalMillis ms,
+and maps OM table/column tags to the target Ranger service (Trino by default).
+
+The token is stored separately in a Secret (see secret-ranger-tagsync-token.yaml).
+*/}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "openmetadata.fullname" . }}-ranger-tagsync
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "openmetadata.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ranger-tagsync-config
+data:
+  ranger-tagsync-site.xml: |
+    <?xml version="1.0" encoding="UTF-8"?>
+    <?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
+    <configuration>
+
+      <!-- TagSync source: OpenMetadata REST API -->
+      <property>
+        <name>ranger.tagsync.source.impl.class</name>
+        <value>org.apache.ranger.tagsync.source.openmetadatarest.OpenmetadataRESTTagSource</value>
+      </property>
+
+      <!-- OpenMetadata REST API base URL (e.g. https://openmetadata.example.com/api) -->
+      <property>
+        <name>ranger.tagsync.source.openmetadatarest.endpoint</name>
+        <value>{{ .Values.ranger.tagSync.endpoint | default "" }}</value>
+      </property>
+
+      <!--
+        JWT bot token used to authenticate against the OpenMetadata REST API.
+        The token is sourced from the Secret referenced by tokenSecretName /
+        tokenSecretKey.  For direct Helm installs set ranger.tagSync.token in
+        values and leave tokenSecretName empty — the chart renders the value here.
+        For KDPS-managed deployments the Ambari view injects the token via the
+        ranger section token_secret_* properties and re-creates this ConfigMap.
+      -->
+      <property>
+        <name>ranger.tagsync.source.openmetadatarest.token</name>
+        <value>{{ .Values.ranger.tagSync.token | default "" }}</value>
+      </property>
+
+      <!-- Component table type — maps to the Ranger service type -->
+      <property>
+        <name>ranger.tagsync.source.openmetadatarest.component.tabletype</name>
+        <value>{{ .Values.ranger.tagSync.componentTableType }}</value>
+      </property>
+
+      <!-- Polling interval in milliseconds -->
+      <property>
+        <name>ranger.tagsync.source.openmetadatarest.download.interval.millis</name>
+        <value>{{ .Values.ranger.tagSync.downloadIntervalMillis }}</value>
+      </property>
+
+      <!-- Max entities per batch request -->
+      <property>
+        <name>ranger.tagsync.source.openmetadatarest.entities.batch.size</name>
+        <value>{{ .Values.ranger.tagSync.entitiesBatchSize }}</value>
+      </property>
+
+      <!--
+        Trino service mapping:
+          ranger.tagsync.openmetadata.<component>.instance.<om_service_fqn>.ranger.service = <ranger_service_name>
+
+        The key uses the Trino ingestion service FQN as defined in OpenMetadata.
+        Multiple Trino instances can be mapped by repeating this property with
+        different FQN keys.
+      -->
+      {{- if and .Values.ranger.tagSync.trinoIngestionServiceFqn .Values.ranger.tagSync.rangerTrinoServiceName }}
+      <property>
+        <name>ranger.tagsync.openmetadata.{{ .Values.ranger.tagSync.componentTableType }}.instance.{{ .Values.ranger.tagSync.trinoIngestionServiceFqn }}.ranger.service</name>
+        <value>{{ .Values.ranger.tagSync.rangerTrinoServiceName }}</value>
+      </property>
+      {{- end }}
+
+    </configuration>
+{{- end }}

@@ -1,0 +1,73 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "openmetadata.configMapName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "openmetadata.labels" . | nindent 4 }}
+data:
+  # ── Database ────────────────────────────────────────────────────────────────
+  DB_HOST: {{ include "openmetadata.dbHost" . | quote }}
+  DB_PORT: {{ .Values.openmetadata.config.database.port | quote }}
+  DB_USER: {{ .Values.openmetadata.config.database.username | quote }}
+  DB_DRIVER_CLASS: {{ .Values.openmetadata.config.database.driverClass | quote }}
+  DB_SCHEME: {{ .Values.openmetadata.config.database.scheme | quote }}
+  OM_DATABASE: {{ .Values.openmetadata.config.database.dbName | quote }}
+
+  # ── Search ──────────────────────────────────────────────────────────────────
+  ELASTICSEARCH_HOST: {{ include "openmetadata.opensearchHost" . | quote }}
+  ELASTICSEARCH_PORT: {{ .Values.openmetadata.config.elasticsearch.port | quote }}
+  ELASTICSEARCH_PROTOCOL: {{ .Values.openmetadata.config.elasticsearch.scheme | quote }}
+  ELASTICSEARCH_CONNECTION_TIMEOUT_SECS: {{ .Values.openmetadata.config.elasticsearch.connectionTimeoutSecs | quote }}
+  ELASTICSEARCH_SOCKET_TIMEOUT_SECS: {{ .Values.openmetadata.config.elasticsearch.socketTimeoutSecs | quote }}
+  ELASTICSEARCH_KEEP_ALIVE_TIMEOUT_SECS: {{ .Values.openmetadata.config.elasticsearch.keepAliveTimeoutSecs | quote }}
+  ELASTICSEARCH_BATCH_SIZE: {{ .Values.openmetadata.config.elasticsearch.batchSize | quote }}
+
+  # ── Authentication ──────────────────────────────────────────────────────────
+  AUTHENTICATION_PROVIDER: {{ include "openmetadata.authProvider" . | quote }}
+  AUTHENTICATION_JWT_PRINCIPAL_CLAIMS: {{ .Values.openmetadata.config.authentication.jwtPrincipalClaims | toJson | quote }}
+
+  {{- if eq .Values.global.security.auth.mode "oidc" }}
+  {{- $oidc := .Values.global.security.auth.oidc }}
+  AUTHENTICATION_AUTHORITY: {{ $oidc.issuerUrl | quote }}
+  AUTHENTICATION_PUBLIC_KEYS: {{ printf "[%q]" (include "openmetadata.oidcPublicKeyUrl" .) | quote }}
+  AUTHENTICATION_CALLBACK_URL: {{ .Values.openmetadata.config.authentication.callbackUrl | quote }}
+  CUSTOM_OIDC_AUTHENTICATION_PROVIDER_NAME: {{ $oidc.providerName | default "SSO" | quote }}
+  {{- else if eq .Values.global.security.auth.mode "ldap" }}
+  {{- $ldap := .Values.global.security.auth.ldap }}
+  AUTHENTICATION_LDAP_HOST: {{ $ldap.host | quote }}
+  AUTHENTICATION_LDAP_PORT: {{ $ldap.port | toString | quote }}
+  AUTHENTICATION_LDAP_USER_BASEDN: {{ $ldap.userBaseDn | quote }}
+  AUTHENTICATION_LDAP_USER_SEARCH_FILTER: {{ $ldap.userSearchFilter | quote }}
+  AUTHENTICATION_LDAP_GROUP_BASEDN: {{ $ldap.groupBaseDn | quote }}
+  AUTHENTICATION_LDAP_GROUP_SEARCH_FILTER: {{ $ldap.groupSearchFilter | quote }}
+  AUTHENTICATION_LDAP_MAIL_ATTRIBUTE: {{ $ldap.mailAttribute | default "mail" | quote }}
+  AUTHENTICATION_LOOKUP_TYPE: {{ $ldap.lookupType | default "SEARCH" | quote }}
+  AUTHENTICATION_LDAP_USE_START_TLS: {{ $ldap.startTls | toString | quote }}
+  AUTHENTICATION_LDAP_IS_SSL: {{ $ldap.isSsl | toString | quote }}
+  {{- end }}
+
+  # ── Authorization ────────────────────────────────────────────────────────────
+  AUTHORIZER_CLASS_NAME: "org.openmetadata.service.security.DefaultAuthorizer"
+  AUTHORIZER_REQUEST_FILTER: "org.openmetadata.service.security.JwtFilter"
+  AUTHORIZER_ADMIN_PRINCIPALS: {{ .Values.openmetadata.config.authorization.adminPrincipals | toJson | quote }}
+  AUTHORIZER_INGESTION_PRINCIPALS: {{ .Values.openmetadata.config.authorization.ingestionPrincipals | toJson | quote }}
+  AUTHORIZER_JWT_CLAIM_FIELDS: {{ .Values.openmetadata.config.authorization.jwtClaimFields | toJson | quote }}
+  AUTHORIZER_ALLOWED_REGISTRATION_DOMAIN: {{ .Values.openmetadata.config.authorization.allowedEmailRegistrationDomains | toJson | quote }}
+
+  # ── Server ───────────────────────────────────────────────────────────────────
+  SERVER_PORT: {{ .Values.openmetadata.config.port | quote }}
+  SERVER_ADMIN_PORT: {{ .Values.openmetadata.config.adminPort | quote }}
+  {{- if .Values.openmetadata.config.authentication.serverUrl }}
+  OM_URI: {{ .Values.openmetadata.config.authentication.serverUrl | quote }}
+  {{- end }}
+
+  # ── JWT token lifetime ───────────────────────────────────────────────────────
+  JWT_TOKEN_EXPIRY_TIME: {{ .Values.openmetadata.config.authentication.jwtTokenExpiryTime | quote }}
+
+  # ── Airflow pipeline client ──────────────────────────────────────────────────
+  PIPELINE_SERVICE_CLIENT_ENABLED: {{ .Values.openmetadata.config.pipelineServiceClientConfig.enabled | quote }}
+  {{- if .Values.openmetadata.config.pipelineServiceClientConfig.apiEndpoint }}
+  PIPELINE_SERVICE_CLIENT_HOST: {{ .Values.openmetadata.config.pipelineServiceClientConfig.apiEndpoint | quote }}
+  PIPELINE_SERVICE_CLIENT_HEALTH_CHECK_INTERVAL: {{ .Values.openmetadata.config.pipelineServiceClientConfig.healthCheckInterval | quote }}
+  {{- end }}

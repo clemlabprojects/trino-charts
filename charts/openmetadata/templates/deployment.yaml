@@ -1,0 +1,213 @@
+{{- $oidc := .Values.global.security.auth.oidc -}}
+{{- $mode := .Values.global.security.auth.mode | default "no-auth" -}}
+{{- $useOidcSecretRef := and (eq $mode "oidc") (not (empty $oidc.secretRef.name)) -}}
+{{- $useOidcFallback  := and (eq $mode "oidc") (empty $oidc.secretRef.name) -}}
+{{- $useLdap := eq $mode "ldap" -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "openmetadata.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "openmetadata.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "openmetadata.selectorLabels" . | nindent 6 }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap-config.yaml") . | sha256sum }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secret-credentials.yaml") . | sha256sum }}
+      labels:
+        {{- include "openmetadata.selectorLabels" . | nindent 8 }}
+        {{- if .Values.global.security.kerberos.enabled }}
+        security.clemlab.com/needs-keytab: "enabled"
+        security.clemlab.com/service: "openmetadata-ingestion"
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "openmetadata.serviceAccountName" . }}
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      initContainers:
+        - name: wait-for-db
+          image: {{ include "openmetadata.resolveImage" (dict "root" . "image" (dict "registry" "" "repository" "busybox" "tag" "1.36")) }}
+          command:
+            - sh
+            - -c
+            - |
+              until nc -z {{ include "openmetadata.dbHost" . }} {{ .Values.openmetadata.config.database.port }}; do
+                echo "waiting for PostgreSQL..."; sleep 3
+              done
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+        - name: wait-for-opensearch
+          image: {{ include "openmetadata.resolveImage" (dict "root" . "image" (dict "registry" "" "repository" "busybox" "tag" "1.36")) }}
+          command:
+            - sh
+            - -c
+            - |
+              until nc -z {{ include "openmetadata.opensearchHost" . }} {{ .Values.openmetadata.config.elasticsearch.port }}; do
+                echo "waiting for OpenSearch..."; sleep 3
+              done
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+      containers:
+        - name: openmetadata
+          image: {{ include "openmetadata.resolveImage" (dict "root" . "image" .Values.image) }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- with .Values.containerSecurityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.openmetadata.config.port }}
+              protocol: TCP
+            - name: admin
+              containerPort: {{ .Values.openmetadata.config.adminPort }}
+              protocol: TCP
+            {{- if .Values.openmetadata.config.tls.enabled }}
+            - name: https
+              containerPort: {{ .Values.openmetadata.config.tls.port }}
+              protocol: TCP
+            {{- end }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "openmetadata.configMapName" . }}
+          env:
+            # ── Database password ───────────────────────────────────────────
+            - name: DB_USER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  {{- if and (not .Values.postgresql.enabled) .Values.externalDatabase.existingSecret }}
+                  name: {{ .Values.externalDatabase.existingSecret }}
+                  {{- else }}
+                  name: {{ include "openmetadata.credentialsSecretName" . }}
+                  {{- end }}
+                  key: db-password
+
+            # ── OIDC client credentials ─────────────────────────────────────
+            {{- if $useOidcSecretRef }}
+            - name: OIDC_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $oidc.secretRef.name }}
+                  key: {{ $oidc.secretRef.clientIdKey }}
+            - name: AUTHENTICATION_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $oidc.secretRef.name }}
+                  key: {{ $oidc.secretRef.clientIdKey }}
+            - name: OIDC_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $oidc.secretRef.name }}
+                  key: {{ $oidc.secretRef.clientSecretKey }}
+            - name: AUTHENTICATION_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $oidc.secretRef.name }}
+                  key: {{ $oidc.secretRef.clientSecretKey }}
+            {{- else if $useOidcFallback }}
+            - name: AUTHENTICATION_CLIENT_ID
+              value: {{ $oidc.clientId | quote }}
+            - name: AUTHENTICATION_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "openmetadata.credentialsSecretName" . }}
+                  key: oidc-client-secret
+            {{- end }}
+
+            # ── LDAP bind credentials ───────────────────────────────────────
+            {{- if $useLdap }}
+            - name: AUTHENTICATION_LDAP_BIND_DN
+              value: {{ .Values.global.security.auth.ldap.bindDn | quote }}
+            - name: AUTHENTICATION_LDAP_BIND_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "openmetadata.credentialsSecretName" . }}
+                  key: ldap-bind-password
+            {{- end }}
+
+            # ── TLS keystore password ───────────────────────────────────────
+            {{- if .Values.openmetadata.config.tls.enabled }}
+            - name: SERVER_SSL_KEYSTORE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.openmetadata.config.tls.keyStorePasswordSecretName }}
+                  key: truststore.password
+            {{- end }}
+
+          livenessProbe:
+            httpGet:
+              path: /healthcheck
+              port: admin
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            failureThreshold: 5
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /api/v1/system/status
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 15
+            failureThreshold: 10
+            timeoutSeconds: 5
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            {{- if .Values.global.security.kerberos.enabled }}
+            - name: krb5-conf
+              mountPath: {{ .Values.global.security.kerberos.mountPath }}
+              subPath: {{ .Values.global.security.kerberos.key | default "krb5.conf" }}
+            {{- if .Values.global.security.kerberos.keytab.secretName }}
+            - name: keytab
+              mountPath: {{ .Values.global.security.kerberos.keytab.mountPath }}
+              readOnly: true
+            {{- end }}
+            {{- end }}
+            {{- if .Values.openmetadata.config.tls.enabled }}
+            - name: tls-keystore
+              mountPath: /etc/security/tls
+              readOnly: true
+            {{- end }}
+      volumes:
+        {{- if .Values.global.security.kerberos.enabled }}
+        - name: krb5-conf
+          configMap:
+            name: {{ .Values.global.security.kerberos.configMapName }}
+        {{- if .Values.global.security.kerberos.keytab.secretName }}
+        - name: keytab
+          secret:
+            secretName: {{ .Values.global.security.kerberos.keytab.secretName }}
+        {{- end }}
+        {{- end }}
+        {{- if .Values.openmetadata.config.tls.enabled }}
+        - name: tls-keystore
+          secret:
+            secretName: {{ .Values.openmetadata.config.tls.keyStoreSecretName }}
+        {{- end }}

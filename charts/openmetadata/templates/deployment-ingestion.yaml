@@ -1,0 +1,120 @@
+{{- if .Values.ingestion.enabled -}}
+{{/*
+Optional bundled Airflow ingestion deployment.
+Uses the openmetadata/ingestion image which is a custom Airflow distribution
+pre-packaged with all OpenMetadata connectors.
+*/}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "openmetadata.fullname" . }}-ingestion
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "openmetadata.ingestionLabels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.ingestion.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "openmetadata.ingestionSelectorLabels" . | nindent 6 }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        {{- include "openmetadata.ingestionSelectorLabels" . | nindent 8 }}
+        {{- if .Values.global.security.kerberos.enabled }}
+        security.clemlab.com/needs-keytab: "enabled"
+        security.clemlab.com/service: "openmetadata-ingestion"
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "openmetadata.ingestionServiceAccountName" . }}
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      initContainers:
+        - name: wait-for-openmetadata
+          image: {{ include "openmetadata.resolveImage" (dict "root" . "image" (dict "registry" "" "repository" "busybox" "tag" "1.36")) }}
+          command:
+            - sh
+            - -c
+            - |
+              until nc -z {{ include "openmetadata.fullname" . }} {{ .Values.openmetadata.config.port }}; do
+                echo "waiting for OpenMetadata server..."; sleep 5
+              done
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+      containers:
+        - name: ingestion
+          image: {{ include "openmetadata.resolveImage" (dict "root" . "image" .Values.ingestion.image) }}
+          imagePullPolicy: {{ .Values.ingestion.image.pullPolicy }}
+          {{- with .Values.containerSecurityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          ports:
+            - name: airflow-web
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: OPENMETADATA_SERVER_URL
+              value: "http://{{ include "openmetadata.fullname" . }}:{{ .Values.openmetadata.config.port }}"
+            - name: OPENMETADATA_SERVER_ADMIN_URL
+              value: "http://{{ include "openmetadata.fullname" . }}:{{ .Values.openmetadata.config.adminPort }}"
+            - name: DB_USER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "openmetadata.credentialsSecretName" . }}
+                  key: db-password
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: airflow-web
+            initialDelaySeconds: 120
+            periodSeconds: 30
+            failureThreshold: 5
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: airflow-web
+            initialDelaySeconds: 120
+            periodSeconds: 15
+            failureThreshold: 10
+          {{- with .Values.ingestion.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            {{- if .Values.global.security.kerberos.enabled }}
+            - name: krb5-conf
+              mountPath: {{ .Values.global.security.kerberos.mountPath }}
+              subPath: {{ .Values.global.security.kerberos.key | default "krb5.conf" }}
+            {{- if .Values.global.security.kerberos.keytab.secretName }}
+            - name: keytab
+              mountPath: {{ .Values.global.security.kerberos.keytab.mountPath }}
+              readOnly: true
+            {{- end }}
+            {{- end }}
+      volumes:
+        {{- if .Values.global.security.kerberos.enabled }}
+        - name: krb5-conf
+          configMap:
+            name: {{ .Values.global.security.kerberos.configMapName }}
+        {{- if .Values.global.security.kerberos.keytab.secretName }}
+        - name: keytab
+          secret:
+            secretName: {{ .Values.global.security.kerberos.keytab.secretName }}
+        {{- end }}
+        {{- end }}
+{{- end }}

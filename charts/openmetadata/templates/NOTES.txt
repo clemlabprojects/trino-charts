@@ -1,0 +1,28 @@
+OpenMetadata {{ .Chart.AppVersion }} has been deployed.
+
+Server:
+  kubectl -n {{ .Release.Namespace }} get pods -l app.kubernetes.io/name={{ include "openmetadata.name" . }}
+
+API endpoint (cluster-internal):
+  http://{{ include "openmetadata.fullname" . }}.{{ .Release.Namespace }}.svc:{{ .Values.openmetadata.config.port }}
+
+{{- if .Values.ingress.enabled }}
+{{- range .Values.ingress.hosts }}
+External URL:
+  {{- range .paths }}
+  http{{- if $.Values.ingress.tls }}s{{ end }}://{{ $.Values.ingress.hosts | first | get "host" }}{{ .path }}
+  {{- end }}
+{{- end }}
+
+Login: {{ .Values.global.security.adminUsers | default "admin" }}
+Auth mode: {{ .Values.global.security.auth.mode }}
+{{- end }}
+
+{{- if .Values.ingestion.enabled }}
+
+Ingestion (Airflow):
+  kubectl -n {{ .Release.Namespace }} get pods -l app.kubernetes.io/name={{ include "openmetadata.name" . }}-ingestion
+{{- end }}
+
+Bootstrap job status:
+  kubectl -n {{ .Release.Namespace }} get job -l app.kubernetes.io/component=migrate

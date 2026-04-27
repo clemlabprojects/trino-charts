@@ -1,0 +1,350 @@
+# Default values for the clemlab OpenMetadata chart.
+# Aligns with the global.security.* convention used by Trino and Superset.
+
+global:
+  imageRegistry: "registry.clemlab.com/clemlabprojects"  # Bitnami subcharts (postgresql)
+  dockerRegistry: "registry.clemlab.com/clemlabprojects"  # opensearch-project subchart
+  imagePullSecrets: []
+  registryOverrides: {}
+
+  security:
+    adminUsers: "admin"
+    adminGroups: ""
+
+    auth:
+      mode: none   # none | ldap | oidc
+      ldap:
+        host: ""
+        port: 389
+        bindDn: ""
+        bindPassword: ""
+        userBaseDn: ""
+        userSearchFilter: "(uid={0})"
+        groupBaseDn: ""
+        groupSearchFilter: "(member={0})"
+        mailAttribute: "mail"
+        lookupType: "SEARCH"   # SEARCH | BIND
+        startTls: false
+        isSsl: false
+      oidc:
+        # issuerUrl injected by Ambari dynamicValues (AMBARI_OIDC_ISSUER_URL)
+        issuerUrl: ""
+        realm: ""
+        # JWKS URI — defaults to <issuerUrl>/protocol/openid-connect/certs (Keycloak).
+        # Override for non-Keycloak providers.
+        jwksUri: ""
+        # Display name shown on the OpenMetadata login button
+        providerName: "SSO"
+        # Ambari OIDC_CREATE_SECRET step writes client_id + client_secret here
+        secretRef:
+          name: ""
+          clientIdKey: "client_id"
+          clientSecretKey: "client_secret"
+        clientId: ""
+        clientSecret: ""
+        scopes: "openid email profile"
+        redirectUri: ""
+        userClaim: "preferred_username"
+        groupsClaim: "groups"
+        skipTlsVerify: false
+
+    kerberos:
+      enabled: true
+      injectionMode: WEBHOOK
+      realm: EXAMPLE.COM
+      configMapName: openmetadata-krb5-conf
+      key: krb5.conf
+      mountPath: /etc/krb5.conf
+      principalMode: headless
+      principalFqdnMode: namespace
+      principalTemplate: "{service}/{fqdn}@{realm}"
+      keytab:
+        mountPath: /etc/security/keytabs
+        secretDataKey: service.keytab
+        secretName: ""
+
+    admissionWebhook:
+      injectKeytab:
+        enabled: true
+        needsKeytabLabelKey: security.clemlab.com/needs-keytab
+        serviceLabelKey: security.clemlab.com/service
+
+    tls:
+      enabled: false
+      truststoreSecret: ""
+      truststoreKey: truststore.jks
+
+# -----------------------------------------------------------------------------
+# OpenMetadata server image
+# -----------------------------------------------------------------------------
+image:
+  registry: "docker.getcollate.io"
+  repository: "openmetadata/server"
+  tag: "1.12.6"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+fullnameOverride: ""
+
+replicaCount: 1
+
+# -- Pod-level security context. fsGroup/fsGroupChangePolicy set by Ambari binding.
+podSecurityContext:
+  fsGroup: 1000
+  fsGroupChangePolicy: OnRootMismatch
+
+containerSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop: ["ALL"]
+
+resources:
+  requests:
+    cpu: 500m
+    memory: 2Gi
+  limits:
+    cpu: "2"
+    memory: 4Gi
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+service:
+  type: ClusterIP
+  port: 8585
+  adminPort: 8586
+  annotations: {}
+
+ingress:
+  enabled: false
+  className: ""
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "0"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "600"
+    # Sticky sessions required when replicaCount > 1 (OIDC callback affinity)
+    nginx.ingress.kubernetes.io/affinity: "cookie"
+    nginx.ingress.kubernetes.io/session-cookie-name: "om-affinity"
+    nginx.ingress.kubernetes.io/session-cookie-expires: "10800"
+  hosts: []
+  tls: []
+
+serviceMonitor:
+  enabled: false
+  interval: "30s"
+  labels: {}
+  namespace: ""
+
+# -----------------------------------------------------------------------------
+# OpenMetadata server configuration — translated to env vars in the deployment
+# -----------------------------------------------------------------------------
+openmetadata:
+  config:
+    # HTTP/HTTPS ports
+    port: 8585
+    adminPort: 8586
+
+    # TLS — wired by Ambari tls binding
+    tls:
+      enabled: false
+      port: 8443
+      keyStorePath: ""
+      keyStoreSecretName: ""
+      keyStorePasswordSecretName: ""
+      keyStoreKey: "keystore.p12"
+
+    # Database (PostgreSQL)
+    database:
+      # host is templated in configmap: {{ include "openmetadata.dbHost" . }}
+      port: 5432
+      username: "openmetadata_user"
+      driverClass: "org.postgresql.Driver"
+      scheme: "postgresql"
+      dbName: "openmetadata_db"
+      # Password comes from secret-credentials.yaml (key: db-password)
+
+    # Search engine
+    elasticsearch:
+      # host is templated in configmap: {{ include "openmetadata.opensearchHost" . }}
+      port: 9200
+      scheme: "http"
+      connectionTimeoutSecs: 5
+      socketTimeoutSecs: 60
+      keepAliveTimeoutSecs: 600
+      batchSize: 1000
+
+    # Authentication — provider and params derived from global.security.auth.*
+    authentication:
+      # callbackUrl / serverUrl injected by Ambari oidc-redirect-uri binding
+      callbackUrl: ""
+      serverUrl: ""
+      jwtTokenExpiryTime: 604800
+      jwtPrincipalClaims:
+        - "email"
+        - "sub"
+        - "preferred_username"
+
+    # Authorization
+    authorization:
+      adminPrincipals:
+        - "admin"
+      allowedEmailRegistrationDomains: []
+      ingestionPrincipals:
+        - "ingestion-bot"
+      jwtClaimFields:
+        - "email"
+
+    # Airflow / pipeline service client — wired by Ambari ingestion-airflow binding
+    pipelineServiceClientConfig:
+      enabled: false
+      apiEndpoint: ""
+      healthCheckInterval: 300
+      ingestionIpInfoEnabled: false
+
+    # Hadoop connectors — wired by Ambari hive-connector / trino-connector bindings
+    connectors:
+      hive:
+        enabled: false
+        metastoreHostPort: ""
+      trino:
+        enabled: false
+        hostPort: ""
+
+# -----------------------------------------------------------------------------
+# Bundled Airflow ingestion (optional — disabled by default)
+# -----------------------------------------------------------------------------
+ingestion:
+  enabled: false
+  image:
+    registry: "docker.getcollate.io"
+    repository: "openmetadata/ingestion"
+    tag: "1.12.6"
+    pullPolicy: IfNotPresent
+  replicaCount: 1
+  resources:
+    requests:
+      cpu: 500m
+      memory: 2Gi
+    limits:
+      cpu: "2"
+      memory: 4Gi
+  serviceAccount:
+    create: true
+    name: ""
+
+# -----------------------------------------------------------------------------
+# PostgreSQL subchart (bitnami/postgresql 17.0.1, PostgreSQL 17.6.0)
+# Image: registry.clemlab.com/clemlabprojects/bitnami/postgresql:17.6.0-clemlab-1 (multi-arch)
+postgresql:
+  enabled: true
+  auth:
+    database: "openmetadata_db"
+    username: "openmetadata_user"
+    password: ""            # set from OPENMETADATA_DB_PASSWORD; auto-generated if empty
+  primary:
+    persistence:
+      enabled: true
+      size: "50Gi"
+      storageClass: ""
+    resources:
+      requests:
+        cpu: 500m
+        memory: 1Gi
+      limits:
+        cpu: "2"
+        memory: 4Gi
+    podSecurityContext:
+      fsGroup: 1001
+    containerSecurityContext:
+      runAsUser: 1001
+      runAsNonRoot: true
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop: ["ALL"]
+
+# External database — used when postgresql.enabled=false
+externalDatabase:
+  host: ""
+  port: 5432
+  username: "openmetadata_user"
+  database: "openmetadata_db"
+  password: ""
+  # Name of a pre-existing Secret with key "db-password" (takes precedence over password).
+  existingSecret: ""
+
+# -----------------------------------------------------------------------------
+# OpenSearch subchart (opensearch-project/opensearch 2.18.0 = OpenSearch 2.12.0)
+# Image: opensearchproject/opensearch:2.12.0 — multi-arch (amd64 + arm64)
+# Air-gap: global.dockerRegistry routes all images through Harbor
+# https://github.com/opensearch-project/helm-charts
+# -----------------------------------------------------------------------------
+opensearch:
+  enabled: true
+  clusterName: "openmetadata"
+  nodeGroup: "master"
+  # image.tag defaults to Chart.AppVersion (2.12.0); no override needed
+  # global.dockerRegistry is set by KDPS at install time → Harbor-routed image
+  singleNode: true
+  replicas: 1
+  persistence:
+    enabled: true
+    size: "30Gi"
+    storageClass: ""
+  resources:
+    requests:
+      cpu: 500m
+      memory: 2Gi
+    limits:
+      cpu: "2"
+      memory: 4Gi
+  sysctlInit:
+    enabled: true          # sets vm.max_map_count=262144 using busybox init container
+    imageTag: "1.36"       # matches the busybox:1.36 already mirrored in Harbor
+  securityConfig:
+    enabled: false         # disable opensearch-security plugin (no TLS/auth inside cluster)
+  config:
+    opensearch.yml: |
+      cluster.name: openmetadata
+      network.host: 0.0.0.0
+
+# External search — used when opensearch.enabled=false
+externalSearch:
+  host: ""
+  port: 9200
+  scheme: "http"
+
+# Ranger TagSync integration (RANGER-4978)
+# When enabled, the chart creates a ConfigMap with ranger-tagsync-site.xml
+# properties that the Ranger TagSync daemon mounts and uses to poll the
+# OpenMetadata REST API for tag/label updates.
+ranger:
+  tagSync:
+    enabled: false
+    # Base URL of the OpenMetadata REST API as seen from the Ranger TagSync host.
+    # Injected by Ambari from https://<ingressHost>/api when Ingress is enabled.
+    endpoint: ""
+    # K8s Secret name that holds the OM bot JWT token under key "tagsync-token".
+    # When deploying via KDPS/Ambari this is set automatically.
+    # For direct Helm installs: leave empty and set token below.
+    tokenSecretName: ""
+    tokenSecretKey: "tagsync-token"
+    # Raw token value — only used when tokenSecretName is empty.
+    # The chart creates the Secret from this value and sets resource-policy: keep.
+    token: ""
+    # FQN of the Trino ingestion service defined in OpenMetadata
+    # (used as the instance key in the FQN→Ranger service mapping).
+    trinoIngestionServiceFqn: ""
+    # Name of the Ranger service of type "trino" where tags will be applied.
+    rangerTrinoServiceName: ""
+    # ranger.tagsync.source.openmetadatarest.component.tabletype
+    componentTableType: "trino"
+    # Polling interval in milliseconds (default 230s)
+    downloadIntervalMillis: 230000
+    # Max entities fetched per page
+    entitiesBatchSize: 10000
+    # Name of an existing ConfigMap to use instead of creating one.
+    # Set by Ambari helm_values_property after KDPS creates/registers the CM.
+    configMapName: ""
