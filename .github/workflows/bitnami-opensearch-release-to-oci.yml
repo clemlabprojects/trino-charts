@@ -1,0 +1,80 @@
+name: Mirror Bitnami OpenSearch chart to Clemlab OCI
+
+# Pulls the upstream Bitnami opensearch chart and pushes it to the internal
+# Harbor registry so it is available as a subchart for OpenMetadata in
+# air-gapped clusters.
+#
+# The chart itself is NOT modified — image defaults remain docker.io/bitnami/…
+# but global.imageRegistry propagates to all Bitnami subcharts, so air-gapped
+# deployments override the registry at install time via --set global.imageRegistry.
+# Container images are mirrored separately by mirror-all-kdps-services.sh.
+#
+# Run this workflow once per OpenSearch chart version required by a dependent chart.
+
+on:
+  workflow_dispatch:
+    inputs:
+      chart_version:
+        description: "Bitnami opensearch chart version (e.g. 0.1.2)"
+        required: true
+        default: "0.1.2"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ inputs.chart_version }}
+  cancel-in-progress: false
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    environment: harbor
+    env:
+      OCI_REGISTRY: registry.clemlab.com
+      OCI_REPO: clemlabprojects/charts
+      CHART_NAME: opensearch
+      CHART_VERSION: ${{ inputs.chart_version }}
+
+    steps:
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.19.0
+
+      - name: Add Bitnami Helm repo
+        run: helm repo add bitnami https://charts.bitnami.com/bitnami
+
+      - name: Pull chart from Bitnami
+        run: |
+          mkdir -p dist
+          helm pull bitnami/${{ env.CHART_NAME }} \
+            --version "${{ env.CHART_VERSION }}" \
+            -d dist
+          ls -la dist/
+
+      - name: Login to Harbor OCI registry
+        run: |
+          echo "${{ secrets.ACTIONS_CLEMLABPROJECTS }}" \
+            | helm registry login 'registry.clemlab.com' \
+                --username 'robot$clemlabprojects+github.actions.clemlabprojects.trino-charts' \
+                --password-stdin
+
+      - name: Docker login to Harbor
+        uses: docker/login-action@v3
+        with:
+          registry: registry.clemlab.com
+          username: 'robot$clemlabprojects+github.actions.clemlabprojects.trino-charts'
+          password: ${{ secrets.ACTIONS_CLEMLABPROJECTS }}
+
+      - name: Push chart to OCI
+        run: |
+          for TGZ in dist/*.tgz; do
+            echo "Pushing $TGZ to oci://${{ env.OCI_REGISTRY }}/${{ env.OCI_REPO }}"
+            helm push "$TGZ" "oci://${{ env.OCI_REGISTRY }}/${{ env.OCI_REPO }}"
+          done
+
+      - name: Verify
+        run: |
+          set -euo pipefail
+          helm pull "oci://${{ env.OCI_REGISTRY }}/${{ env.OCI_REPO }}/${{ env.CHART_NAME }}" \
+            --version "${{ env.CHART_VERSION }}" --untar
+          ls -la "./${{ env.CHART_NAME }}"
+          echo "opensearch ${{ env.CHART_VERSION }} is now available at oci://${{ env.OCI_REGISTRY }}/${{ env.OCI_REPO }}/${{ env.CHART_NAME }}"
