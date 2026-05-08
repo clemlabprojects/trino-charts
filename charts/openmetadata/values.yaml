@@ -78,7 +78,7 @@ global:
 # OpenMetadata server image
 # -----------------------------------------------------------------------------
 image:
-  registry: "docker.getcollate.io"
+  registry: "registry.clemlab.com/clemlabprojects"
   repository: "openmetadata/server"
   tag: "1.12.6"
   pullPolicy: IfNotPresent
@@ -219,7 +219,7 @@ openmetadata:
 ingestion:
   enabled: false
   image:
-    registry: "docker.getcollate.io"
+    registry: "registry.clemlab.com/clemlabprojects"
     repository: "openmetadata/ingestion"
     tag: "1.12.6"
     pullPolicy: IfNotPresent

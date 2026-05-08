@@ -72,6 +72,37 @@ spec:
             allowPrivilegeEscalation: false
             capabilities:
               drop: ["ALL"]
+        - name: migrate
+          image: {{ include "openmetadata.resolveImage" (dict "root" . "image" .Values.image) }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - /bin/bash
+            - -c
+            - ./bin/openmetadata-server-start.sh migrate
+          envFrom:
+            - configMapRef:
+                name: {{ include "openmetadata.configMapName" . }}
+          env:
+            - name: DB_USER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  {{- if and (not .Values.postgresql.enabled) .Values.externalDatabase.existingSecret }}
+                  name: {{ .Values.externalDatabase.existingSecret }}
+                  {{- else }}
+                  name: {{ include "openmetadata.credentialsSecretName" . }}
+                  {{- end }}
+                  key: db-password
+          {{- with .Values.containerSecurityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          resources:
+            requests:
+              cpu: 200m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
       containers:
         - name: openmetadata
           image: {{ include "openmetadata.resolveImage" (dict "root" . "image" .Values.image) }}
