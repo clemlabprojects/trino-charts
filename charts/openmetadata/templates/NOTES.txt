@@ -10,7 +10,7 @@ API endpoint (cluster-internal):
 {{- range .Values.ingress.hosts }}
 External URL:
   {{- range .paths }}
-  http{{- if $.Values.ingress.tls }}s{{ end }}://{{ $.Values.ingress.hosts | first | get "host" }}{{ .path }}
+  http{{- if $.Values.ingress.tls }}s{{ end }}://{{ (first $.Values.ingress.hosts).host }}{{ .path }}
   {{- end }}
 {{- end }}
 
