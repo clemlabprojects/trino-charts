@@ -293,6 +293,7 @@ opensearch:
     enabled: true
     size: "30Gi"
     storageClass: ""
+    imageTag: "1.36"       # busybox tag for the persistence init container (chmod/chown)
   resources:
     requests:
       cpu: 500m
