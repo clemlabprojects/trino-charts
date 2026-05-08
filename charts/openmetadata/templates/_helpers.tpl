@@ -141,6 +141,24 @@ The official opensearch-project chart names the service <clusterName>-<nodeGroup
 {{- end }}
 
 {{/*
+Normalise imagePullSecrets: accepts both string entries and {name:...} objects,
+as KDPS injects them as plain strings while Kubernetes requires {name:...} objects.
+*/}}
+{{- define "openmetadata.imagePullSecrets" -}}
+{{- $list := list -}}
+{{- range (default (list) .Values.global.imagePullSecrets) }}
+  {{- if kindIs "string" . -}}
+    {{- $list = append $list (dict "name" .) -}}
+  {{- else -}}
+    {{- $list = append $list . -}}
+  {{- end -}}
+{{- end -}}
+{{- if gt (len $list) 0 -}}
+{{- toYaml $list -}}
+{{- end -}}
+{{- end }}
+
+{{/*
 Name of the credentials Secret.
 */}}
 {{- define "openmetadata.credentialsSecretName" -}}

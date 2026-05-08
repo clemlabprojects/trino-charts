@@ -37,9 +37,9 @@ spec:
       securityContext:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- with .Values.global.imagePullSecrets }}
+      {{- with (include "openmetadata.imagePullSecrets" .) }}
       imagePullSecrets:
-        {{- toYaml . | nindent 8 }}
+        {{- . | nindent 8 }}
       {{- end }}
       initContainers:
         - name: wait-for-db
