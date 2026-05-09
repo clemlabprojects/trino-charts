@@ -50,7 +50,7 @@ data:
   # ── Authorization ────────────────────────────────────────────────────────────
   AUTHORIZER_CLASS_NAME: "org.openmetadata.service.security.DefaultAuthorizer"
   AUTHORIZER_REQUEST_FILTER: "org.openmetadata.service.security.JwtFilter"
-  AUTHORIZER_ADMIN_PRINCIPALS: {{ .Values.openmetadata.config.authorization.adminPrincipals | toJson | quote }}
+  AUTHORIZER_ADMIN_PRINCIPALS: {{ include "openmetadata.adminPrincipals" . | quote }}
   AUTHORIZER_INGESTION_PRINCIPALS: {{ .Values.openmetadata.config.authorization.ingestionPrincipals | toJson | quote }}
   AUTHORIZER_JWT_CLAIM_FIELDS: {{ .Values.openmetadata.config.authorization.jwtClaimFields | toJson | quote }}
   AUTHORIZER_ALLOWED_REGISTRATION_DOMAIN: {{ .Values.openmetadata.config.authorization.allowedEmailRegistrationDomains | toJson | quote }}

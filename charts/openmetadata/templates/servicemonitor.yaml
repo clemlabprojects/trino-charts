@@ -1,13 +1,23 @@
 {{- if .Values.serviceMonitor.enabled -}}
+{{- $releaseLabel := "" -}}
+{{- if .Values.serviceMonitor.labels -}}
+  {{- $releaseLabel = default "" .Values.serviceMonitor.labels.release -}}
+{{- end -}}
+{{- if not $releaseLabel -}}
+  {{- $releaseLabel = default "" .Values.monitoring.release -}}
+{{- end -}}
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
   name: {{ include "openmetadata.fullname" . }}
-  namespace: {{ .Values.serviceMonitor.namespace | default .Release.Namespace }}
+  namespace: {{ coalesce .Values.serviceMonitor.namespace .Values.monitoring.namespace .Release.Namespace }}
   labels:
     {{- include "openmetadata.labels" . | nindent 4 }}
     {{- with .Values.serviceMonitor.labels }}
     {{- toYaml . | nindent 4 }}
+    {{- end }}
+    {{- if $releaseLabel }}
+    release: {{ $releaseLabel | quote }}
     {{- end }}
 spec:
   selector:
@@ -19,6 +29,6 @@ spec:
   endpoints:
     - port: admin
       path: /prometheus
-      interval: {{ .Values.serviceMonitor.interval }}
+      interval: {{ .Values.serviceMonitor.interval | default "30s" }}
       scrapeTimeout: 10s
 {{- end }}

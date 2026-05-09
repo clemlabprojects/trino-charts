@@ -86,12 +86,8 @@ spec:
             - name: DB_USER_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  {{- if and (not .Values.postgresql.enabled) .Values.externalDatabase.existingSecret }}
-                  name: {{ .Values.externalDatabase.existingSecret }}
-                  {{- else }}
-                  name: {{ include "openmetadata.credentialsSecretName" . }}
-                  {{- end }}
-                  key: db-password
+                  name: {{ include "openmetadata.dbPasswordSecretName" . }}
+                  key: {{ include "openmetadata.dbPasswordSecretKey" . }}
           {{- with .Values.containerSecurityContext }}
           securityContext:
             {{- toYaml . | nindent 12 }}
@@ -131,12 +127,8 @@ spec:
             - name: DB_USER_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  {{- if and (not .Values.postgresql.enabled) .Values.externalDatabase.existingSecret }}
-                  name: {{ .Values.externalDatabase.existingSecret }}
-                  {{- else }}
-                  name: {{ include "openmetadata.credentialsSecretName" . }}
-                  {{- end }}
-                  key: db-password
+                  name: {{ include "openmetadata.dbPasswordSecretName" . }}
+                  key: {{ include "openmetadata.dbPasswordSecretKey" . }}
 
             # ── OIDC client credentials ─────────────────────────────────────
             {{- if $useOidcSecretRef }}

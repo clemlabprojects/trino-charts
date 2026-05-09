@@ -153,8 +153,54 @@ as KDPS injects them as plain strings while Kubernetes requires {name:...} objec
     {{- $list = append $list . -}}
   {{- end -}}
 {{- end -}}
+{{- range (default (list) .Values.imagePullSecrets) }}
+  {{- if kindIs "string" . -}}
+    {{- $list = append $list (dict "name" .) -}}
+  {{- else -}}
+    {{- $list = append $list . -}}
+  {{- end -}}
+{{- end -}}
 {{- if gt (len $list) 0 -}}
-{{- toYaml $list -}}
+{{- toYaml $list | trim -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+Name of the Secret that holds the postgresql password.
+When the bundled postgresql subchart is used, read from its generated secret.
+*/}}
+{{/*
+Split comma-separated adminPrincipals entries into a clean JSON array.
+Accepts both ["admin,lbakalian"] (KDPS single-string) and ["admin","lbakalian"] forms.
+Falls back to global.security.adminUsers if adminPrincipals is empty.
+*/}}
+{{- define "openmetadata.adminPrincipals" -}}
+{{- $list := list -}}
+{{- range (default (list) .Values.openmetadata.config.authorization.adminPrincipals) -}}
+  {{- range splitList "," . -}}{{- $list = append $list (trim .) -}}{{- end -}}
+{{- end -}}
+{{- if and (empty $list) .Values.global.security.adminUsers -}}
+  {{- range splitList "," .Values.global.security.adminUsers -}}{{- $list = append $list (trim .) -}}{{- end -}}
+{{- end -}}
+{{- $list | toJson -}}
+{{- end }}
+
+{{/*
+Name of the Secret that holds the postgresql password.
+*/}}
+{{- define "openmetadata.dbPasswordSecretName" -}}
+{{- if .Values.postgresql.enabled -}}
+{{- printf "%s-postgresql" .Release.Name -}}
+{{- else if .Values.externalDatabase.existingSecret -}}
+{{- .Values.externalDatabase.existingSecret -}}
+{{- else -}}
+{{- include "openmetadata.credentialsSecretName" . -}}
+{{- end -}}
+{{- end }}
+
+{{- define "openmetadata.dbPasswordSecretKey" -}}
+{{- if .Values.postgresql.enabled -}}password
+{{- else -}}db-password
 {{- end -}}
 {{- end }}
 

@@ -75,8 +75,8 @@ spec:
             - name: DB_USER_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "openmetadata.credentialsSecretName" . }}
-                  key: db-password
+                  name: {{ include "openmetadata.dbPasswordSecretName" . }}
+                  key: {{ include "openmetadata.dbPasswordSecretKey" . }}
           livenessProbe:
             httpGet:
               path: /health
