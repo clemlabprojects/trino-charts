@@ -287,6 +287,9 @@ opensearch:
   nodeGroup: "master"
   # image.tag defaults to Chart.AppVersion (2.12.0); no override needed
   # global.dockerRegistry is set by KDPS at install time → Harbor-routed image
+  # opensearch subchart does not inherit global.imagePullSecrets — set explicitly
+  imagePullSecrets:
+    - name: registry-credentials
   singleNode: true
   replicas: 1
   persistence:
