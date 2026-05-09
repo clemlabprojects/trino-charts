@@ -285,6 +285,10 @@ opensearch:
   enabled: true
   clusterName: "openmetadata"
   nodeGroup: "master"
+  # masterService defaults to "opensearch-cluster-master" in the subchart values.yaml.
+  # Clear it so the Service name is derived from clusterName ("openmetadata-master"),
+  # matching what openmetadata.opensearchHost resolves.
+  masterService: ""
   image:
     tag: "2.11.1"          # 2.12.0 bundles JDK 21 which crashes (SIGILL) on ARMv8.0 cores
                            # 2.11.1 bundles JDK 17 (ARMv8.0 baseline, aarch64-safe)
