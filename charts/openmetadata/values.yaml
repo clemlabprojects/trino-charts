@@ -285,8 +285,10 @@ opensearch:
   enabled: true
   clusterName: "openmetadata"
   nodeGroup: "master"
-  # image.tag defaults to Chart.AppVersion (2.12.0); no override needed
-  # global.dockerRegistry is set by KDPS at install time → Harbor-routed image
+  image:
+    tag: "2.11.1"          # 2.12.0 bundles JDK 21 which crashes (SIGILL) on ARMv8.0 cores
+                           # 2.11.1 bundles JDK 17 (ARMv8.0 baseline, aarch64-safe)
+  # global.dockerRegistry is set in global.dockerRegistry → Harbor-routed image
   # opensearch subchart does not inherit global.imagePullSecrets — set explicitly
   imagePullSecrets:
     - name: registry-credentials
@@ -307,6 +309,11 @@ opensearch:
   sysctlInit:
     enabled: true          # sets vm.max_map_count=262144 using busybox init container
     imageTag: "1.36"       # matches the busybox:1.36 already mirrored in Harbor
+  extraEnvs:
+    - name: DISABLE_INSTALL_DEMO_CONFIG
+      value: "true"
+    - name: DISABLE_SECURITY_PLUGIN
+      value: "true"
   securityConfig:
     enabled: false         # disable opensearch-security plugin (no TLS/auth inside cluster)
   config:
