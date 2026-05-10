@@ -12,7 +12,7 @@ global:
     adminGroups: ""
 
     auth:
-      mode: none   # none | ldap | oidc
+      mode: no-auth   # no-auth | ldap | oidc
       ldap:
         host: ""
         port: 389
