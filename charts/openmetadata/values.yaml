@@ -243,7 +243,9 @@ postgresql:
   auth:
     database: "openmetadata_db"
     username: "openmetadata_user"
-    password: ""            # set from OPENMETADATA_DB_PASSWORD; auto-generated if empty
+    # Use a stable default so reinstalls on an existing PVC don't get a mismatched
+    # random password. Override via KDPS / existingSecret for production.
+    password: "openmetadata"
   primary:
     persistence:
       enabled: true
