@@ -105,13 +105,14 @@ Usage: {{ include "openmetadata.resolveImage" (dict "root" . "image" .Values.ima
 
 {{/*
 Map global.security.auth.mode to the OpenMetadata AUTHENTICATION_PROVIDER env value.
-Accepts "oidc", "ldap", "none", or "no-auth" (the form select uses "no-auth").
+Accepts "oidc", "ldap", "none", "no-auth", or "basic".
+OpenMetadata 1.12+ removed the "no-auth" provider; "basic" is the equivalent default.
 */}}
 {{- define "openmetadata.authProvider" -}}
 {{- $mode := .Values.global.security.auth.mode | default "no-auth" -}}
 {{- if eq $mode "oidc" -}}custom-oidc
 {{- else if eq $mode "ldap" -}}ldap
-{{- else -}}no-auth
+{{- else -}}basic
 {{- end }}
 {{- end }}
 

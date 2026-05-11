@@ -12,7 +12,7 @@ global:
     adminGroups: ""
 
     auth:
-      mode: no-auth   # no-auth | ldap | oidc
+      mode: basic   # basic | ldap | oidc
       ldap:
         host: ""
         port: 389
@@ -258,6 +258,11 @@ postgresql:
       limits:
         cpu: "2"
         memory: 4Gi
+    # RHEL9 OpenSSL 3.x compiled-in config disables MD5 even without FIPS mode.
+    # OpenMetadata migration scripts use MD5() in SQL; bypass the config restriction.
+    extraEnvVars:
+      - name: OPENSSL_CONF
+        value: "/dev/null"
     podSecurityContext:
       fsGroup: 1001
     containerSecurityContext:
