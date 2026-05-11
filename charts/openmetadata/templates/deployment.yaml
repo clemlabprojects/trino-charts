@@ -184,7 +184,7 @@ spec:
             timeoutSeconds: 5
           readinessProbe:
             httpGet:
-              path: /api/v1/system/status
+              path: /api/v1/system/version
               port: http
             initialDelaySeconds: 60
             periodSeconds: 15
