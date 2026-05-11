@@ -35,6 +35,9 @@ data:
   AUTHENTICATION_PUBLIC_KEYS: {{ printf "[%q]" (include "openmetadata.oidcPublicKeyUrl" .) | quote }}
   AUTHENTICATION_CALLBACK_URL: {{ .Values.openmetadata.config.authentication.callbackUrl | quote }}
   CUSTOM_OIDC_AUTHENTICATION_PROVIDER_NAME: {{ $oidc.providerName | default "SSO" | quote }}
+  # Keycloak has implicitFlowEnabled=false; force Authorization Code flow and confidential client type.
+  OIDC_RESPONSE_TYPE: "code"
+  OIDC_TYPE: {{ if $oidc.secretRef.name }}"confidential"{{ else }}"public"{{ end }}
   {{- else if eq .Values.global.security.auth.mode "ldap" }}
   {{- $ldap := .Values.global.security.auth.ldap }}
   AUTHENTICATION_LDAP_HOST: {{ $ldap.host | quote }}
