@@ -72,6 +72,25 @@ spec:
             allowPrivilegeEscalation: false
             capabilities:
               drop: ["ALL"]
+        - name: migrate
+          image: {{ include "openmetadata.resolveImage" (dict "root" . "image" .Values.image) }}
+          command:
+            - /bin/bash
+            - -c
+            - /opt/openmetadata/bootstrap/openmetadata-ops.sh migrate
+          envFrom:
+            - configMapRef:
+                name: {{ include "openmetadata.configMapName" . }}
+          env:
+            - name: DB_USER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "openmetadata.dbPasswordSecretName" . }}
+                  key: {{ include "openmetadata.dbPasswordSecretKey" . }}
+          {{- with .Values.containerSecurityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
       containers:
         - name: openmetadata
           image: {{ include "openmetadata.resolveImage" (dict "root" . "image" .Values.image) }}
