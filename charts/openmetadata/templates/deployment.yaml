@@ -178,7 +178,7 @@ spec:
             httpGet:
               path: /healthcheck
               port: admin
-            initialDelaySeconds: 60
+            initialDelaySeconds: 30
             periodSeconds: 30
             failureThreshold: 5
             timeoutSeconds: 5
@@ -186,8 +186,8 @@ spec:
             httpGet:
               path: /api/v1/system/version
               port: http
-            initialDelaySeconds: 60
-            periodSeconds: 15
+            initialDelaySeconds: 30
+            periodSeconds: 10
             failureThreshold: 10
             timeoutSeconds: 5
           {{- with .Values.resources }}
