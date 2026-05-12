@@ -34,14 +34,13 @@ data:
   AUTHENTICATION_AUTHORITY: {{ $oidc.issuerUrl | quote }}
   AUTHENTICATION_PUBLIC_KEYS: {{ printf "[%q]" (include "openmetadata.oidcPublicKeyUrl" .) | quote }}
   AUTHENTICATION_CALLBACK_URL: {{ .Values.openmetadata.config.authentication.callbackUrl | quote }}
+  AUTHENTICATION_RESPONSE_TYPE: "code"
+  AUTHENTICATION_CLIENT_TYPE: {{ if $oidc.secretRef.name }}"confidential"{{ else }}"public"{{ end }}
   CUSTOM_OIDC_AUTHENTICATION_PROVIDER_NAME: {{ $oidc.providerName | default "SSO" | quote }}
-  # Keycloak has implicitFlowEnabled=false; force Authorization Code flow and confidential client type.
-  OIDC_RESPONSE_TYPE: "code"
   OIDC_TYPE: {{ if $oidc.secretRef.name }}"confidential"{{ else }}"public"{{ end }}
-  OIDC_SCOPES: {{ $oidc.scopes | default "openid email profile" | quote }}
-  OIDC_USERNAME_CLAIM: {{ $oidc.userClaim | default "preferred_username" | quote }}
-  OIDC_GROUPS_CLAIM: {{ $oidc.groupsClaim | default "groups" | quote }}
-  OIDC_DISABLE_SSL_VERIFICATION: {{ $oidc.skipTlsVerify | default false | toString | quote }}
+  OIDC_SCOPE: {{ $oidc.scopes | default "openid email profile" | quote }}
+  OIDC_DISCOVERY_URI: {{ printf "%s/.well-known/openid-configuration" $oidc.issuerUrl | quote }}
+  OIDC_CALLBACK: {{ .Values.openmetadata.config.authentication.callbackUrl | quote }}
   {{- else if eq .Values.global.security.auth.mode "ldap" }}
   {{- $ldap := .Values.global.security.auth.ldap }}
   AUTHENTICATION_LDAP_HOST: {{ $ldap.host | quote }}
