@@ -35,7 +35,11 @@ data:
   AUTHENTICATION_PUBLIC_KEYS: {{ printf "[%q]" (include "openmetadata.oidcPublicKeyUrl" .) | quote }}
   AUTHENTICATION_CALLBACK_URL: {{ .Values.openmetadata.config.authentication.callbackUrl | quote }}
   AUTHENTICATION_RESPONSE_TYPE: "code"
-  AUTHENTICATION_CLIENT_TYPE: {{ if $oidc.secretRef.name }}"confidential"{{ else }}"public"{{ end }}
+  # custom-oidc always uses client-side oidc-client-ts (public flow).
+  # "confidential" is only for pac4j-backed providers (google/azure/okta);
+  # setting it for custom-oidc causes the frontend to call /api/v1/auth/login
+  # which OpenMetadata does not register for this provider → 404.
+  AUTHENTICATION_CLIENT_TYPE: "public"
   CUSTOM_OIDC_AUTHENTICATION_PROVIDER_NAME: {{ $oidc.providerName | default "SSO" | quote }}
   OIDC_TYPE: {{ if $oidc.secretRef.name }}"confidential"{{ else }}"public"{{ end }}
   OIDC_SCOPE: {{ $oidc.scopes | default "openid email profile" | quote }}

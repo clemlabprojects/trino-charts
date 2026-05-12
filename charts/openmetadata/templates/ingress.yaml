@@ -33,4 +33,46 @@ spec:
                   name: http
           {{- end }}
     {{- end }}
+---
+{{/* Separate Ingress for /api/v1/system/config/auth to rewrite responseType.
+     ConfigResource.java hardcodes responseType=id_token in the API response;
+     with custom-oidc this triggers implicit flow which Keycloak (standard flow only) rejects.
+     nginx sub_filter rewrites it to "code" so oidc-client-ts uses PKCE code flow. */}}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "openmetadata.fullname" . }}-auth-config-rewrite
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "openmetadata.labels" . | nindent 4 }}
+  annotations:
+    {{- with .Values.ingress.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      proxy_set_header Accept-Encoding "";
+      sub_filter '"responseType":"id_token"' '"responseType":"code"';
+      sub_filter_once on;
+      sub_filter_types application/json;
+spec:
+  {{- if .Values.ingress.className }}
+  ingressClassName: {{ .Values.ingress.className | quote }}
+  {{- end }}
+  {{- if .Values.ingress.tls }}
+  tls:
+    {{- toYaml .Values.ingress.tls | nindent 4 }}
+  {{- end }}
+  rules:
+    {{- range .Values.ingress.hosts }}
+    - host: {{ .host | quote }}
+      http:
+        paths:
+          - path: /api/v1/system/config/auth
+            pathType: Exact
+            backend:
+              service:
+                name: {{ include "openmetadata.fullname" $ }}
+                port:
+                  name: http
+    {{- end }}
 {{- end }}
