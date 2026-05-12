@@ -76,6 +76,11 @@ Create chart name and version as used by the chart label.
 {{- if $auth.mode }}
 - name: TRINO_SECURITY_MODE
   value: {{ $auth.mode | quote }}
+- name: TRINO_INTERNAL_SHARED_SECRET
+  valueFrom:
+    secretKeyRef:
+      name: {{ printf "%s-internal-communication" (include "trino.fullname" .) | quote }}
+      key: shared-secret
 {{- if eq $auth.mode "ldap" }}
 - name: TRINO_LDAP_URL
   value: {{ $auth.ldap.url | quote }}

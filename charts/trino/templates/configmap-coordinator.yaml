@@ -50,6 +50,16 @@ data:
   {{- range $configValue := .Values.coordinator.additionalJVMConfig }}
     {{ $configValue }}
   {{- end }}
+  {{- if and .Values.global.security.tls.enabled .Values.global.security.tls.truststore.enabled .Values.global.security.tls.truststoreSecret }}
+  {{- $tsMount := default "/etc/security/truststore/truststore.jks" .Values.global.security.tls.mountPath }}
+  {{- $tsSecret := lookup "v1" "Secret" .Release.Namespace .Values.global.security.tls.truststoreSecret }}
+  {{- $tsPassKey := default "truststore.password" .Values.global.security.tls.truststorePasswordKey }}
+  {{- $tsPass := "" }}{{- if $tsSecret }}{{- $tsPass = index $tsSecret.data $tsPassKey | b64dec }}{{- end }}
+    -Djavax.net.ssl.trustStore={{ $tsMount }}
+    {{- if $tsPass }}
+    -Djavax.net.ssl.trustStorePassword={{ $tsPass }}
+    {{- end }}
+  {{- end }}
   {{- if $coordinatorJmx.enabled }}
     -Dcom.sun.management.jmxremote.rmi.port={{- $coordinatorJmx.serverPort }}
   {{- end }}
@@ -76,17 +86,19 @@ data:
     {{- if $oidcCfg.clientId }}
     http-server.authentication.oauth2.client-id={{ $oidcCfg.clientId }}
     http-server.authentication.oauth2.client-secret={{ $oidcCfg.clientSecret }}
-    http-server.authentication.oauth2.audience={{ $oidcCfg.clientId }}
+    http-server.authentication.oauth2.additional-audiences={{ $oidcCfg.clientId }}
     {{- else if ($oidcCfg.secretRef | default dict).name }}
     http-server.authentication.oauth2.client-id=${ENV:OIDC_CLIENT_ID}
     http-server.authentication.oauth2.client-secret=${ENV:OIDC_CLIENT_SECRET}
-    http-server.authentication.oauth2.audience=${ENV:OIDC_CLIENT_ID}
+    http-server.authentication.oauth2.additional-audiences=${ENV:OIDC_CLIENT_ID}
     {{- end }}
     http-server.authentication.oauth2.scopes={{ default "openid email profile" $oidcCfg.scopes }}
     {{- if $oidcCfg.userClaim }}
     http-server.authentication.oauth2.principal-field={{ $oidcCfg.userClaim }}
     {{- end }}
-    http-server.authentication.oauth2.enabled=true
+    {{- end }}
+    {{- if or .Values.server.config.authenticationType $ldapModeEnabled (eq $authMode "oidc") }}
+    internal-communication.shared-secret=${ENV:TRINO_INTERNAL_SHARED_SECRET}
     {{- end }}
     {{- if $ldapModeEnabled }}
     password-authenticator.config-files={{ .Values.server.config.path }}/password-authenticator.properties
