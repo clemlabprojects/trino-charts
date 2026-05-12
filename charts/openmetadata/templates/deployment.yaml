@@ -91,6 +91,52 @@ spec:
           securityContext:
             {{- toYaml . | nindent 12 }}
           {{- end }}
+        # Sync auth settings from env vars to DB after every migrate.
+        # OpenMetadata's migrate seeds settings only on first install; if the PVC
+        # persists across helm uninstall/install the DB row is never updated when
+        # chart values change (e.g. clientType public → confidential).
+        - name: sync-auth-config
+          image: postgres:15-alpine
+          command:
+            - sh
+            - -c
+            - |
+              set -e
+              export PGPASSWORD="$DB_USER_PASSWORD"
+              until pg_isready -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$OM_DATABASE" -q; do
+                echo "Waiting for PostgreSQL at $DB_HOST:$DB_PORT ..."; sleep 3
+              done
+              if [ -n "${AUTHENTICATION_CLIENT_TYPE}" ]; then
+                psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$OM_DATABASE" -c \
+                  "UPDATE openmetadata_settings
+                   SET json = json
+                     || jsonb_build_object(
+                          'clientType',   '${AUTHENTICATION_CLIENT_TYPE}',
+                          'responseType', '${AUTHENTICATION_RESPONSE_TYPE:-id_token}'
+                        )
+                     || jsonb_build_object(
+                          'oidcConfiguration',
+                          COALESCE(json -> 'oidcConfiguration', '{}'::jsonb)
+                          || jsonb_build_object(
+                               'callbackUrl',  '${OIDC_CALLBACK}',
+                               'serverUrl',    '${OM_URI}',
+                               'discoveryUri', '${OIDC_DISCOVERY_URI}'
+                             )
+                        )
+                   WHERE configtype = 'authenticationConfiguration';"
+                echo "Auth config synced: clientType=${AUTHENTICATION_CLIENT_TYPE} responseType=${AUTHENTICATION_RESPONSE_TYPE:-id_token}"
+              else
+                echo "AUTHENTICATION_CLIENT_TYPE not set (non-OIDC mode), skipping auth sync."
+              fi
+          envFrom:
+            - configMapRef:
+                name: {{ include "openmetadata.configMapName" . }}
+          env:
+            - name: DB_USER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "openmetadata.dbPasswordSecretName" . }}
+                  key: {{ include "openmetadata.dbPasswordSecretKey" . }}
       containers:
         - name: openmetadata
           image: {{ include "openmetadata.resolveImage" (dict "root" . "image" .Values.image) }}
