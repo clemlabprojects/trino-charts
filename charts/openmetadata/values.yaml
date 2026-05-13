@@ -196,6 +196,11 @@ openmetadata:
         - "ingestion-bot"
       jwtClaimFields:
         - "email"
+      # Email domain used when bootstrap-creating admin user records (AUTHORIZER_PRINCIPAL_DOMAIN).
+      # OpenMetadata defaults to "open-metadata.org" if unset — leaving that creates placeholder
+      # admin emails that won't match real OIDC tokens (causing "Account already exists" on first login).
+      # Set this to the email domain your IdP issues for these users (e.g. dev21.hadoop.clemlab.com).
+      principalDomain: ""
 
     # Airflow / pipeline service client — wired by Ambari ingestion-airflow binding
     pipelineServiceClientConfig:

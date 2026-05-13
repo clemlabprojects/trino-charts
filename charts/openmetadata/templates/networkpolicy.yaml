@@ -67,6 +67,20 @@ spec:
         - protocol: TCP
           port: 53
     # OIDC / LDAP / external auth providers — allow HTTPS egress
+    {{/* Extract a non-default port from oidc.issuerUrl so JWKS fetch works when
+         Keycloak listens on something other than 443 (e.g. 8444). */}}
+    {{- $oidcIssuer := ((.Values.global).security).auth | default dict | dig "oidc" "issuerUrl" "" }}
+    {{- $oidcPort := "" }}
+    {{- if $oidcIssuer }}
+    {{- $parsed := urlParse $oidcIssuer }}
+    {{- $hostParts := splitList ":" ($parsed.host | default "") }}
+    {{- if eq (len $hostParts) 2 }}
+    {{- $candidate := index $hostParts 1 }}
+    {{- if and (ne $candidate "443") (ne $candidate "80") }}
+    {{- $oidcPort = $candidate }}
+    {{- end }}
+    {{- end }}
+    {{- end }}
     - ports:
         - protocol: TCP
           port: 443
@@ -74,6 +88,10 @@ spec:
           port: 389
         - protocol: TCP
           port: 636
+        {{- if $oidcPort }}
+        - protocol: TCP
+          port: {{ $oidcPort | int }}
+        {{- end }}
     # Kerberos KDC
     {{- if .Values.global.security.kerberos.enabled }}
     - ports:

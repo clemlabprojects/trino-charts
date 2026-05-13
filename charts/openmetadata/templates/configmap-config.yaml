@@ -66,6 +66,9 @@ data:
   AUTHORIZER_INGESTION_PRINCIPALS: {{ .Values.openmetadata.config.authorization.ingestionPrincipals | toJson | quote }}
   AUTHORIZER_JWT_CLAIM_FIELDS: {{ .Values.openmetadata.config.authorization.jwtClaimFields | toJson | quote }}
   AUTHORIZER_ALLOWED_REGISTRATION_DOMAIN: {{ .Values.openmetadata.config.authorization.allowedEmailRegistrationDomains | toJson | quote }}
+  {{- if .Values.openmetadata.config.authorization.principalDomain }}
+  AUTHORIZER_PRINCIPAL_DOMAIN: {{ .Values.openmetadata.config.authorization.principalDomain | quote }}
+  {{- end }}
 
   # ── Server ───────────────────────────────────────────────────────────────────
   SERVER_PORT: {{ .Values.openmetadata.config.port | quote }}

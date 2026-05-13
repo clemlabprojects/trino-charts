@@ -220,6 +220,16 @@ spec:
                   key: truststore.password
             {{- end }}
 
+            # ── JVM truststore (for outbound TLS, e.g. JWKS fetch from Keycloak) ──
+            {{- if and .Values.global.security.tls.enabled (.Values.global.security.tls.truststore | default dict).enabled .Values.global.security.tls.truststoreSecret }}
+            {{- $tsMount := "/etc/security/truststore/truststore.jks" }}
+            {{- $tsSecret := lookup "v1" "Secret" .Release.Namespace .Values.global.security.tls.truststoreSecret }}
+            {{- $tsPassKey := default "truststore.password" .Values.global.security.tls.truststorePasswordKey }}
+            {{- $tsPass := "" }}{{- if $tsSecret }}{{- $tsPass = index $tsSecret.data $tsPassKey | b64dec }}{{- end }}
+            - name: JAVA_TOOL_OPTIONS
+              value: "-Djavax.net.ssl.trustStore={{ $tsMount }}{{ if $tsPass }} -Djavax.net.ssl.trustStorePassword={{ $tsPass }}{{ end }}"
+            {{- end }}
+
           livenessProbe:
             httpGet:
               path: /healthcheck
@@ -256,6 +266,11 @@ spec:
               mountPath: /etc/security/tls
               readOnly: true
             {{- end }}
+            {{- if and .Values.global.security.tls.enabled (.Values.global.security.tls.truststore | default dict).enabled .Values.global.security.tls.truststoreSecret }}
+            - name: jvm-truststore
+              mountPath: /etc/security/truststore
+              readOnly: true
+            {{- end }}
       volumes:
         {{- if .Values.global.security.kerberos.enabled }}
         - name: krb5-conf
@@ -271,4 +286,12 @@ spec:
         - name: tls-keystore
           secret:
             secretName: {{ .Values.openmetadata.config.tls.keyStoreSecretName }}
+        {{- end }}
+        {{- if and .Values.global.security.tls.enabled (.Values.global.security.tls.truststore | default dict).enabled .Values.global.security.tls.truststoreSecret }}
+        - name: jvm-truststore
+          secret:
+            secretName: {{ .Values.global.security.tls.truststoreSecret }}
+            items:
+              - key: {{ .Values.global.security.tls.truststoreKey | default "truststore.jks" }}
+                path: truststore.jks
         {{- end }}
