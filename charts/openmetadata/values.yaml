@@ -77,10 +77,12 @@ global:
 # -----------------------------------------------------------------------------
 # OpenMetadata server image
 # -----------------------------------------------------------------------------
+# Points to the ODP-built multi-arch image produced by CLEMLAB
+# `openmetadata/server` image. Tag pattern: ${app.version}.${bigtop.version}-${odp.stack_build_number}
 image:
   registry: "registry.clemlab.com/clemlabprojects"
-  repository: "openmetadata/server"
-  tag: "1.12.6"
+  repository: "openmetadata"
+  tag: "1.12.6.1.3.2.0-1"
   pullPolicy: IfNotPresent
 
 nameOverride: ""
