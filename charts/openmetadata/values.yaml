@@ -225,10 +225,14 @@ openmetadata:
 # -----------------------------------------------------------------------------
 ingestion:
   enabled: false
+  # ODP-built Airflow-based ingestion image — replaces upstream `openmetadata/ingestion`.
+  # Produced from the same git ref as the server (see ~/odp-stack do-component-build);
+  # OpenMetadata Python packages are installed from local source thanks to
+  # patch0-ingestion-from-source.diff.
   image:
     registry: "registry.clemlab.com/clemlabprojects"
-    repository: "openmetadata/ingestion"
-    tag: "1.12.6"
+    repository: "openmetadata-ingestion"
+    tag: "1.12.6.1.3.2.0-1"
     pullPolicy: IfNotPresent
   replicaCount: 1
   resources:
