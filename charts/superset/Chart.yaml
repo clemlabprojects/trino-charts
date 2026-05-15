@@ -29,7 +29,7 @@ maintainers:
   - name: clemlab
     email: odp@clemlab.com
     url: https://github.com/clemlabprojects/trinodb-helm-charts
-version: 0.12.19
+version: 0.12.20
 dependencies:
   - name: postgresql
     version: 17.0.1

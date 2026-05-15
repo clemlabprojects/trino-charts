@@ -289,7 +289,13 @@ extraVolumeMounts: []
 # -- A dictionary of overrides to append at the end of superset_config.py - the name does not matter
 # WARNING: the order is not guaranteed
 # Files can be passed as helm --set-file configOverrides.my-override=my-file.py
-configOverrides: {}
+configOverrides:
+  # Trust X-Forwarded-Proto / X-Forwarded-For from the (nginx) ingress in front of us.
+  # Without this, Flask sees the ingress→pod hop as plain HTTP and emits http:// URLs in
+  # the OAuth redirect_uri, which Keycloak rejects with "Invalid parameter: redirect_uri"
+  # because the client is registered with https://.../oauth-authorized/generic.
+  proxy_fix: |
+    ENABLE_PROXY_FIX = True
   # extend_timeout: |
   #    # Extend timeout to allow long running queries.
   #    SUPERSET_WEBSERVER_TIMEOUT = ...
