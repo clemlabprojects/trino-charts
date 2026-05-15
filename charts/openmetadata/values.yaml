@@ -248,12 +248,12 @@ ingestion:
 
 # -----------------------------------------------------------------------------
 # PostgreSQL subchart — overridden to the ODP-built clemlab image at
-# registry.clemlab.com/clemlabprojects/bitnami/postgresql:17.10-clemlab-1 (multi-arch,
+# registry.clemlab.com/clemlabprojects/bitnami/postgresql:18.0-clemlab-1 (multi-arch,
 # PGDG sources, vendored Bitnami chart layout). See odp-stack/bigtop-packages/src/common/bitnami-postgresql/.
 postgresql:
   enabled: true
   image:
-    tag: "17.10-clemlab-1"
+    tag: "18.0-clemlab-1"
   auth:
     database: "openmetadata_db"
     username: "openmetadata_user"

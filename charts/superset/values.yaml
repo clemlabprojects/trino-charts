@@ -957,7 +957,10 @@ postgresql:
     database: superset
 
   image:
-    tag: "17.10-clemlab-1"
+    # PG 18 — matches what Bitnami's `:latest` ships today, so a PVC initdb'd by
+    # the legacy mirror can be reused without `helm uninstall`. Built by
+    # odp-stack: ./gradlew bitnami-postgresql18-image
+    tag: "18.0-clemlab-1"
 
   ## PostgreSQL Primary parameters
   primary:
