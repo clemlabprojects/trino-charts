@@ -251,6 +251,8 @@ spec:
             {{- toYaml . | nindent 12 }}
           {{- end }}
           volumeMounts:
+            - name: openmetadata-logs
+              mountPath: /opt/openmetadata/logs
             {{- if .Values.global.security.kerberos.enabled }}
             - name: krb5-conf
               mountPath: {{ .Values.global.security.kerberos.mountPath }}
@@ -272,6 +274,8 @@ spec:
               readOnly: true
             {{- end }}
       volumes:
+        - name: openmetadata-logs
+          emptyDir: {}
         {{- if .Values.global.security.kerberos.enabled }}
         - name: krb5-conf
           configMap:
