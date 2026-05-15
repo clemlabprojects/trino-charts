@@ -336,7 +336,7 @@ extraConfigMountPath: "/app/configs"
 
 image:
   repository: superset
-  tag: "4.1.4.1.3.2.0-1"
+  tag: "4.1.4.1.3.2.0-2"
   pullPolicy: IfNotPresent
 
 imagePullSecrets: []
@@ -957,7 +957,7 @@ postgresql:
     database: superset
 
   image:
-    tag: "17.6.0-clemlab-1"
+    tag: "17.10-clemlab-1"
 
   ## PostgreSQL Primary parameters
   primary:
@@ -995,6 +995,29 @@ redis:
   ##
   ## Set architecture to standalone/replication
   architecture: standalone
+
+  # Override Bitnami's digest-style "sha256-XXX" defaults (which point to Notary
+  # signature artifacts, not real images) with the ODP-built clemlab images at
+  # registry.clemlab.com/clemlabprojects/bitnami/<name>:<version>-clemlab-1.
+  # See odp-stack/bigtop-packages/src/common/bitnami-*/ for the Dockerfiles.
+  image:
+    tag: "7.0.15-clemlab-1"
+  sentinel:
+    image:
+      tag: "7.0.15-clemlab-1"
+  metrics:
+    image:
+      tag: "1.76.0-clemlab-1"
+  volumePermissions:
+    image:
+      tag: "12-clemlab-1"
+  kubectl:
+    image:
+      tag: "1.33.4-clemlab-1"
+  sysctl:
+    image:
+      tag: "12-clemlab-1"
+
   ##
   ## Auth configuration:
   ##
