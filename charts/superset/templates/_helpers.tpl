@@ -212,7 +212,42 @@ SQLALCHEMY_TRACK_MODIFICATIONS = True
 AUTH_TYPE = os.getenv("SECURITY_AUTH_MODE", "none").upper()
 if AUTH_TYPE == "OIDC":
     from flask_appbuilder.security.manager import AUTH_OAUTH
+    from superset.security import SupersetSecurityManager
     AUTH_TYPE = AUTH_OAUTH
+    # Auto-create users seen via OIDC. Without this, FAB returns a generic
+    # "Invalid login" right after a successful Keycloak callback because the
+    # user does not yet exist locally.
+    AUTH_USER_REGISTRATION = True
+    AUTH_USER_REGISTRATION_ROLE = env('SECURITY_OIDC_DEFAULT_ROLE', 'Gamma')
+    AUTH_ROLES_SYNC_AT_LOGIN = True
+
+    _USER_CLAIM = env('SECURITY_OIDC_USER_CLAIM', 'preferred_username')
+    _GROUPS_CLAIM = env('SECURITY_OIDC_GROUPS_CLAIM', 'groups')
+
+    class CustomSsoSecurityManager(SupersetSecurityManager):
+        # Without an explicit mapping, FAB's "generic" provider does not know
+        # how to turn Keycloak's userinfo response into a User row, so login
+        # fails with: "Error returning OAuth user info" / "Invalid login.
+        # Please try again." even though the OIDC handshake succeeded.
+        def oauth_user_info(self, provider, response=None):
+            if provider != 'generic':
+                return {}
+            me = self.appbuilder.sm.oauth_remotes[provider].userinfo()
+            username = me.get(_USER_CLAIM) or me.get('preferred_username') or me.get('sub')
+            groups = me.get(_GROUPS_CLAIM) or []
+            if isinstance(groups, str):
+                groups = [groups]
+            return {
+                'username': username,
+                'name': me.get('name') or username,
+                'email': me.get('email', ''),
+                'first_name': me.get('given_name', ''),
+                'last_name': me.get('family_name', ''),
+                'role_keys': groups,
+            }
+
+    CUSTOM_SECURITY_MANAGER = CustomSsoSecurityManager
+
     OAUTH_PROVIDERS = [
         {
             'name': 'generic',
@@ -224,6 +259,12 @@ if AUTH_TYPE == "OIDC":
                 'api_base_url': env('SECURITY_OIDC_ISSUER'),
                 'access_token_url': env('SECURITY_OIDC_ISSUER') + '/protocol/openid-connect/token',
                 'authorize_url': env('SECURITY_OIDC_ISSUER') + '/protocol/openid-connect/auth',
+                'userinfo_endpoint': env('SECURITY_OIDC_ISSUER') + '/protocol/openid-connect/userinfo',
+                # Required for Authlib to validate the ID token signature: fetches the
+                # OIDC discovery doc, which carries the jwks_uri Authlib reads at verify
+                # time. Without this, login fails with: Missing "jwks_uri" in metadata.
+                'server_metadata_url': env('SECURITY_OIDC_ISSUER') + '/.well-known/openid-configuration',
+                'jwks_uri': env('SECURITY_OIDC_ISSUER') + '/protocol/openid-connect/certs',
                 'client_kwargs': {
                     'scope': env('SECURITY_OIDC_SCOPES', 'openid email profile'),
                 },
@@ -371,6 +412,17 @@ release: {{ .Release.Name }}
 {{- $pathEnv := default "TRUSTSTORE_PATH" $env.pathEnv -}}
 {{- $mountPath := default "/etc/security/truststore/ca.crt" $tls.mountPath -}}
 - name: {{ $pathEnv | quote }}
+  value: {{ $mountPath | quote }}
+# Python (requests / urllib3 / oauthlib) reads the CA bundle from REQUESTS_CA_BUNDLE
+# (preferred) and CURL_CA_BUNDLE (fallback). Flask-AppBuilder's OAuth code-exchange
+# call goes through requests, so without these the back-channel POST to Keycloak
+# fails with SSLCertVerificationError ("unable to get local issuer certificate")
+# whenever the IdP cert is signed by an internal CA.
+- name: "REQUESTS_CA_BUNDLE"
+  value: {{ $mountPath | quote }}
+- name: "CURL_CA_BUNDLE"
+  value: {{ $mountPath | quote }}
+- name: "SSL_CERT_FILE"
   value: {{ $mountPath | quote }}
 {{- end }}
 {{- end }}

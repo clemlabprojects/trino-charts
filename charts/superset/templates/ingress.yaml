@@ -29,12 +29,33 @@ metadata:
     chart: {{ template "superset.chart" . }}
     release: {{ .Release.Name }}
     heritage: {{ .Release.Service }}
-  {{- with .Values.ingress.annotations }}
-  annotations: {{- toYaml . | nindent 4 }}
+  {{- $authMode := "" }}
+  {{- if .Values.global }}{{- if .Values.global.security }}{{- if .Values.global.security.auth }}
+  {{- $authMode = .Values.global.security.auth.mode | default "" }}
+  {{- end }}{{- end }}{{- end }}
+  {{- $needsLargeHeaders := or (eq (lower (toString $authMode)) "oidc") (eq (lower (toString $authMode)) "oauth") }}
+  {{- if or .Values.ingress.annotations $needsLargeHeaders }}
+  annotations:
+    {{- if $needsLargeHeaders }}
+    # OAuth / OIDC: Flask-AppBuilder emits large state + session cookies on the
+    # redirect to the IdP. Defaults (proxy-buffer-size 4k/8k) trigger
+    # "upstream sent too big header while reading response header from upstream"
+    # followed by a 502 on /login/generic. Bumping both buffer-size and number
+    # gives enough headroom for the cookie + Set-Cookie response.
+    nginx.ingress.kubernetes.io/proxy-buffer-size: "16k"
+    nginx.ingress.kubernetes.io/proxy-buffers-number: "4"
+    nginx.ingress.kubernetes.io/proxy-busy-buffers-size: "32k"
+    {{- end }}
+    {{- with .Values.ingress.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
   {{- end }}
 spec:
-  {{- if .Values.ingress.ingressClassName }}
-  ingressClassName: {{ .Values.ingress.ingressClassName }}
+  {{- /* Accept ingressClassName written by the KDPS view OR the chart's legacy alias. */}}
+  {{- $cls := .Values.ingress.ingressClassName }}
+  {{- if not $cls }}{{- $cls = .Values.ingress.className }}{{- end }}
+  {{- if $cls }}
+  ingressClassName: {{ $cls }}
   {{- end }}
   {{- if .Values.ingress.tls }}
   tls:
@@ -47,10 +68,33 @@ spec:
     {{- end }}
   {{- end }}
   rules:
+    {{- /* Hosts entries can be either:
+           - a plain string ("example.com")                  — legacy / pre-normalize
+           - a map { host: "example.com", paths: [...] }     — KDPS shared binding (>= 0.12.25)
+           Both are normalised here so the template renders the same Ingress object. */}}
     {{- range .Values.ingress.hosts }}
-    - host: {{ . }}
+    {{- $hostName := "" }}
+    {{- $paths := list }}
+    {{- if kindIs "string" . }}
+    {{- $hostName = . }}
+    {{- else }}
+    {{- $hostName = .host }}
+    {{- $paths = .paths }}
+    {{- end }}
+    - host: {{ $hostName }}
       http:
         paths:
+          {{- if $paths }}
+          {{- range $paths }}
+          - path: {{ .path | default $.Values.ingress.path }}
+            pathType: {{ .pathType | default $.Values.ingress.pathType }}
+            backend:
+              service:
+                name: {{ $fullName }}
+                port:
+                  name: http
+          {{- end }}
+          {{- else }}
           - path: {{ $.Values.ingress.path }}
             pathType: {{ $.Values.ingress.pathType }}
             backend:
@@ -58,6 +102,7 @@ spec:
                 name: {{ $fullName }}
                 port:
                   name: http
+          {{- end }}
           {{- if $.Values.supersetWebsockets.enabled }}
           - path: {{ $.Values.supersetWebsockets.ingress.path }}
             pathType: {{ $.Values.supersetWebsockets.ingress.pathType }}

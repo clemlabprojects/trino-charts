@@ -6,13 +6,29 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "trino.labels" . | nindent 4 }}
-  {{- /* merge user annotations and enforce HTTPS backend when internal HTTPS is on */ -}}
+  {{- /* merge user annotations, enforce HTTPS backend when internal HTTPS is on,
+         and bump proxy buffers when OIDC/OAuth is enabled (large redirect headers). */ -}}
   {{- $ingressAnnotations := dict -}}
   {{- range $key, $val := .Values.ingress.annotations }}
   {{- $_ := set $ingressAnnotations $key $val }}
   {{- end }}
   {{- if and $.Values.server.config.https.enabled (not (hasKey $ingressAnnotations "nginx.ingress.kubernetes.io/backend-protocol")) }}
   {{- $_ := set $ingressAnnotations "nginx.ingress.kubernetes.io/backend-protocol" "HTTPS" }}
+  {{- end }}
+  {{- $authMode := "" }}
+  {{- if .Values.global }}{{- if .Values.global.security }}{{- if .Values.global.security.auth }}
+  {{- $authMode = .Values.global.security.auth.mode | default "" }}
+  {{- end }}{{- end }}{{- end }}
+  {{- if or (eq (lower (toString $authMode)) "oidc") (eq (lower (toString $authMode)) "oauth") }}
+  {{- if not (hasKey $ingressAnnotations "nginx.ingress.kubernetes.io/proxy-buffer-size") }}
+  {{- $_ := set $ingressAnnotations "nginx.ingress.kubernetes.io/proxy-buffer-size" "16k" }}
+  {{- end }}
+  {{- if not (hasKey $ingressAnnotations "nginx.ingress.kubernetes.io/proxy-buffers-number") }}
+  {{- $_ := set $ingressAnnotations "nginx.ingress.kubernetes.io/proxy-buffers-number" "4" }}
+  {{- end }}
+  {{- if not (hasKey $ingressAnnotations "nginx.ingress.kubernetes.io/proxy-busy-buffers-size") }}
+  {{- $_ := set $ingressAnnotations "nginx.ingress.kubernetes.io/proxy-busy-buffers-size" "32k" }}
+  {{- end }}
   {{- end }}
   annotations:
     {{- toYaml $ingressAnnotations | nindent 4 }}
