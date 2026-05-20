@@ -52,8 +52,17 @@ spec:
       containers:
       - name: {{ template "superset.name" . }}-init-db
         image: {{ include "superset.image" (dict "root" . "image" .Values.image) | quote }}
-        {{- if or .Values.extraEnv .Values.extraEnvRaw }}
         env:
+          {{- /* superset.security.env injects SECURITY_AUTH_MODE plus the LDAP/OIDC
+                env vars. Without it, `superset init` runs with AUTH_TYPE=AUTH_DB
+                (default), so FAB never registers UserOAuthModelView and the
+                can_userinfo permission for UserOAuthModelView is never created.
+                OAuth-authenticated users then get "Access is Denied" on
+                Settings → User Info even when they have Admin role. */}}
+          {{- include "superset.security.env" . | nindent 10 }}
+          {{- /* superset.admin.env mirrors what runtime pods see; kept for parity
+                so the init job is a faithful dry-run of runtime configuration. */}}
+          {{- include "superset.admin.env" . | nindent 10 }}
           {{- range $key, $value := .Values.extraEnv }}
           - name: {{ $key | quote }}
             value: {{ $value | quote }}
@@ -61,7 +70,6 @@ spec:
           {{- if .Values.extraEnvRaw }}
             {{- toYaml .Values.extraEnvRaw | nindent 10 }}
           {{- end }}
-        {{- end }}
         envFrom:
           - secretRef:
               name: {{ tpl .Values.envFromSecret . }}

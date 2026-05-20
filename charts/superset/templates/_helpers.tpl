@@ -237,13 +237,23 @@ if AUTH_TYPE == "OIDC":
             groups = me.get(_GROUPS_CLAIM) or []
             if isinstance(groups, str):
                 groups = [groups]
+            # role_keys feeds AUTH_ROLES_MAPPING below. FAB's contract is that
+            # AUTH_ROLES_MAPPING maps an external "role key" (could be a group
+            # name, a role name, or in our extended convention here, a username)
+            # to a list of FAB roles. We append the username so the per-user
+            # ADMIN_USERS list works for OIDC — LDAP got this for free via the
+            # group DN match, but OIDC has no concept of per-user role grants
+            # without our help.
+            role_keys = list(groups)
+            if username:
+                role_keys.append(str(username))
             return {
                 'username': username,
                 'name': me.get('name') or username,
                 'email': me.get('email', ''),
                 'first_name': me.get('given_name', ''),
                 'last_name': me.get('family_name', ''),
-                'role_keys': groups,
+                'role_keys': role_keys,
             }
 
     CUSTOM_SECURITY_MANAGER = CustomSsoSecurityManager
@@ -299,38 +309,49 @@ else:
     AUTH_TYPE = AUTH_DB
 
 # --- Admin/user/group mapping ---
+# AUTH_ROLES_MAPPING is the FAB lookup table that turns "role keys" (any external
+# identifier — usernames, group short names, group DNs, IdP roles) into local
+# Superset/FAB roles. The CustomSsoSecurityManager for OIDC feeds username +
+# the user's groups claim into role_keys; the LDAP path feeds the user's
+# memberOf DN list. Both end up looked up here, so we populate the table with
+# every form a key might take.
 ADMIN_ROLE_NAME = env('SECURITY_ADMIN_ROLE', 'Admin')
 ADMIN_USERS = [u.strip() for u in env('SECURITY_ADMIN_USERS', '').split(',') if u.strip()]
-
-AUTH_ROLES_MAPPING = {}
-for u in ADMIN_USERS:
-    AUTH_ROLES_MAPPING[u] = [ADMIN_ROLE_NAME]
-
-# Comma-separated. Each entry may be:
-# - short name: hadoop_admins
-# - full DN: cn=hadoop_admins,cn=groups,cn=accounts,dc=...
 ADMIN_GROUPS_RAW = [g.strip() for g in env("SECURITY_ADMIN_GROUPS", "").split(",") if g.strip()]
 LDAP_GROUPS_BASE = env("SECURITY_LDAP_GROUP_SEARCH_BASE", "")  # e.g. cn=groups,cn=accounts,dc=...
 LDAP_GROUP_RDN_ATTR = env("SECURITY_LDAP_GROUP_RDN_ATTR", "cn")  # cn | uid | whatever
 
-AUTH_ROLES_MAPPING = {}
-
 def _is_dn(s: str) -> bool:
     return "=" in s and "," in s  # good enough for our purposes
 
+# Build the mapping once, populating every key form we know how to receive.
+# Earlier revisions of this template reset AUTH_ROLES_MAPPING to {} between
+# the user and group blocks, which silently wiped out the per-user grants —
+# don't reintroduce that.
+AUTH_ROLES_MAPPING = {}
+
+# Per-user grants (used by OIDC via username injected into role_keys,
+# and by LDAP if the IdP ever surfaces the bare username as a key — rare but
+# safe to have).
+for u in ADMIN_USERS:
+    AUTH_ROLES_MAPPING[u] = [ADMIN_ROLE_NAME]
+
+# Per-group grants. Accepts:
+#   - short name (e.g. "hadoop_admins")  → used by OIDC groups claim
+#   - full LDAP DN (e.g. "cn=hadoop_admins,cn=groups,...") → used by LDAP memberOf
+# When only the short name is supplied AND a base DN is known, the DN form is
+# also added so LDAP and OIDC users with the same logical group both match.
 for g in ADMIN_GROUPS_RAW:
     if _is_dn(g):
-        # user provided full DN
         AUTH_ROLES_MAPPING[g] = [ADMIN_ROLE_NAME]
     else:
-        # user provided short name -> build DN using RDN attr + group base
         if LDAP_GROUPS_BASE:
             dn = f"{LDAP_GROUP_RDN_ATTR}={g},{LDAP_GROUPS_BASE}"
             AUTH_ROLES_MAPPING[dn] = [ADMIN_ROLE_NAME]
-        # optional fallback mapping (rarely useful, but harmless)
         AUTH_ROLES_MAPPING[g] = [ADMIN_ROLE_NAME]
 
 AUTH_ROLES_SYNC_AT_LOGIN = True
+logging.getLogger("flask_appbuilder.security.manager").setLevel(logging.DEBUG)
 
 class CeleryConfig:
   imports  = ("superset.sql_lab", )
