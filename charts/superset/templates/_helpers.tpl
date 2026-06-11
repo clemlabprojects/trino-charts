@@ -212,6 +212,10 @@ SQLALCHEMY_TRACK_MODIFICATIONS = True
 AUTH_TYPE = os.getenv("SECURITY_AUTH_MODE", "none").upper()
 if AUTH_TYPE == "OIDC":
     from flask_appbuilder.security.manager import AUTH_OAUTH
+    from flask_appbuilder.security.views import AuthOAuthView
+    from flask_appbuilder import expose
+    from flask import redirect, request, session
+    from flask_login import logout_user
     from superset.security import SupersetSecurityManager
     AUTH_TYPE = AUTH_OAUTH
     # Auto-create users seen via OIDC. Without this, FAB returns a generic
@@ -224,7 +228,27 @@ if AUTH_TYPE == "OIDC":
     _USER_CLAIM = env('SECURITY_OIDC_USER_CLAIM', 'preferred_username')
     _GROUPS_CLAIM = env('SECURITY_OIDC_GROUPS_CLAIM', 'groups')
 
+    class CustomAuthOAuthView(AuthOAuthView):
+        # RP-Initiated Logout (OIDC). FAB's default /logout only clears the local
+        # session; the Keycloak SSO cookie survives, so the very next "Sign in"
+        # silently re-authenticates the same user. We capture the id_token at
+        # login (see CustomSsoSecurityManager.oauth_user_info) and on logout we
+        # redirect to Keycloak's end_session_endpoint with id_token_hint, which
+        # ends the SSO session so the next sign-in actually prompts.
+        @expose("/logout/", methods=["GET", "POST"])
+        def logout(self):
+            id_token = session.pop("oidc_id_token", None)
+            logout_user()
+            session.clear()
+            issuer = env("SECURITY_OIDC_ISSUER", "")
+            if issuer and id_token:
+                end_session = issuer.rstrip("/") + "/protocol/openid-connect/logout"
+                post_uri = request.host_url.rstrip("/") + "/login/"
+                return redirect(f"{end_session}?id_token_hint={id_token}&post_logout_redirect_uri={post_uri}")
+            return redirect(self.appbuilder.get_url_for_login)
+
     class CustomSsoSecurityManager(SupersetSecurityManager):
+        authoauthview = CustomAuthOAuthView
         # Without an explicit mapping, FAB's "generic" provider does not know
         # how to turn Keycloak's userinfo response into a User row, so login
         # fails with: "Error returning OAuth user info" / "Invalid login.
@@ -232,6 +256,12 @@ if AUTH_TYPE == "OIDC":
         def oauth_user_info(self, provider, response=None):
             if provider != 'generic':
                 return {}
+            # Capture id_token from the token-exchange response so logout can
+            # send it as id_token_hint to Keycloak (RP-Initiated Logout). The
+            # response dict is populated by Authlib after the auth-code grant
+            # and carries id_token when 'openid' is in the requested scope.
+            if isinstance(response, dict) and response.get("id_token"):
+                session["oidc_id_token"] = response["id_token"]
             me = self.appbuilder.sm.oauth_remotes[provider].userinfo()
             username = me.get(_USER_CLAIM) or me.get('preferred_username') or me.get('sub')
             groups = me.get(_GROUPS_CLAIM) or []
