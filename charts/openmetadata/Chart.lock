@@ -1,0 +1,12 @@
+dependencies:
+- name: postgresql
+  repository: oci://registry.clemlab.com/clemlabprojects/charts
+  version: 17.0.1
+- name: opensearch
+  repository: oci://registry.clemlab.com/clemlabprojects/charts
+  version: 2.18.0
+- name: openmetadata-dependencies
+  repository: oci://registry.clemlab.com/clemlabprojects/charts
+  version: 1.12.6
+digest: sha256:288bd91d1c131c2a53803f8025375b5f1ef2a5143ff00c15d122b0c16e170b9a
+generated: "2026-06-20T15:32:25.602615841Z"

@@ -314,9 +314,10 @@ opensearch:
     tag: "2.11.1"          # 2.12.0 bundles JDK 21 which crashes (SIGILL) on ARMv8.0 cores
                            # 2.11.1 bundles JDK 17 (ARMv8.0 baseline, aarch64-safe)
   # global.dockerRegistry is set in global.dockerRegistry → Harbor-routed image
-  # opensearch subchart does not inherit global.imagePullSecrets — set explicitly
-  imagePullSecrets:
-    - name: registry-credentials
+  # opensearch sub-chart does not inherit global.imagePullSecrets — the secret
+  # name is supplied at deploy time by KDPS via the service.json
+  # `imagePullSecretTargets` entry, so this stays declarative.
+  imagePullSecrets: []
   singleNode: true
   replicas: 1
   persistence:
@@ -384,3 +385,216 @@ ranger:
     # Name of an existing ConfigMap to use instead of creating one.
     # Set by Ambari helm_values_property after KDPS creates/registers the CM.
     configMapName: ""
+
+# =============================================================================
+# openmetadata-dependencies sub-chart — Airflow-based ingestion runner.
+#
+# Off by default. The KDPS form sets `dependencies.enabled=true` when the
+# operator enables real federation (e.g. Atlas) or any other feature that
+# needs to schedule OM ingestion pipelines.
+#
+# Every image is pinned to a multi-arch Harbor mirror; no upstream pulls.
+# Airflow uses an `airflow_db` database created at install time inside
+# OM's existing postgres (see templates/job-airflow-db-bootstrap.yaml).
+# =============================================================================
+dependencies:
+  enabled: false
+
+  mysql:
+    enabled: false      # we use OM's own postgres for everything
+
+  opensearch:
+    enabled: false      # reuse the OM main chart's opensearch instance
+
+  airflow:
+    enabled: true
+
+    # `useStandardNaming: true` is REQUIRED, not optional:
+    #
+    #   1. With the chart's default `useStandardNaming: false`, every airflow
+    #      resource is prefixed with the OM release name alone — e.g. the
+    #      airflow ConfigMap becomes `<release>-config`. That collides with
+    #      OM main chart's own `<release>-config` ConfigMap
+    #      (templates/configmap-config.yaml), and helm install errors with
+    #      'no ConfigMap with the name "<release>-config" found' after the
+    #      duplicate manifests overwrite each other.
+    #
+    #   2. OM templates that reference the airflow API server URL
+    #      (configmap-config.yaml + job-atlas-federation-wire.yaml) build the
+    #      hostname as `{{ .Release.Name }}-airflow-api-server` — which only
+    #      resolves when the airflow sub-chart names its Service that way,
+    #      i.e. when `useStandardNaming: true`.
+    #
+    # With this flag on, airflow resources are `<release>-airflow-*` — no
+    # collision, OM's hardcoded URLs resolve.
+    useStandardNaming: true
+
+    # `registry.secretName` is filled in at deploy time by KDPS using the
+    # cluster's actual image-pull-secret name (declared in OPENMETADATA's
+    # service.json under `imagePullSecretTargets`). The airflow sub-chart
+    # does NOT inherit `global.imagePullSecrets`, so without this override
+    # every airflow pod hits ImagePullBackOff on the private Harbor.
+    registry:
+      secretName: ~
+
+    defaultAirflowRepository: registry.clemlab.com/clemlabprojects/airflow
+    defaultAirflowTag: "3.0.2"
+    defaultAirflowDigest: ~
+
+    images:
+      airflow:
+        repository: registry.clemlab.com/clemlabprojects/airflow
+        tag: "3.0.2"
+        pullPolicy: IfNotPresent
+      pod_template:
+        repository: registry.clemlab.com/clemlabprojects/airflow
+        tag: "3.0.2"
+        pullPolicy: IfNotPresent
+      statsd:
+        repository: registry.clemlab.com/clemlabprojects/statsd-exporter
+        tag: v0.28.0
+        pullPolicy: IfNotPresent
+      redis:
+        repository: registry.clemlab.com/clemlabprojects/redis
+        tag: 7.2-bookworm
+        pullPolicy: IfNotPresent
+      pgbouncer:
+        repository: registry.clemlab.com/clemlabprojects/airflow-pgbouncer
+        tag: 1.23.1-2025.03.05
+        pullPolicy: IfNotPresent
+      pgbouncerExporter:
+        repository: registry.clemlab.com/clemlabprojects/airflow-pgbouncer-exporter
+        tag: 0.18.0-2025.03.05
+        pullPolicy: IfNotPresent
+      gitSync:
+        repository: registry.clemlab.com/clemlabprojects/git-sync
+        tag: v4.3.0
+        pullPolicy: IfNotPresent
+
+    # The airflow chart's embedded postgresql is disabled — we share the OM
+    # postgres. The airflow_db database is created at install via the
+    # bootstrap Job below.
+    postgresql:
+      enabled: false
+
+    data:
+      metadataConnection:
+        protocol: postgresql
+        host: openmetadata-postgresql
+        port: 5432
+        db: airflow_db
+        user: openmetadata_user
+        pass: openmetadata    # same secret already used by OM main app
+        sslmode: disable
+      resultBackendConnection:
+        protocol: db+postgresql
+        host: openmetadata-postgresql
+        port: 5432
+        db: airflow_db
+        user: openmetadata_user
+        pass: openmetadata
+        sslmode: disable
+
+    airflowLocalDag:
+      image:
+        repository: registry.clemlab.com/clemlabprojects/openmetadata-ingestion
+        tag: "1.12.6.1.3.2.0-24"
+
+    executor: KubernetesExecutor
+    scheduler:
+      replicas: 1
+    # Logs PVC uses ReadWriteMany hardcoded in the airflow sub-chart template
+    # (intended for shared NFS/EFS backends so multiple airflow pods can write
+    # to the same log dir). On a single-node cluster using local-path
+    # (the dev01 default), no RWX provisioner exists — the PVC stays Pending
+    # with `failed to provision: NodePath only supports ReadWriteOnce`. Disable
+    # persistence and fall back to emptyDir: airflow logs become per-pod and
+    # don't survive a pod restart, which is fine for non-prod. Operators with
+    # an RWX provisioner can re-enable via override in the wizard.
+    logs:
+      persistence:
+        enabled: false
+
+    triggerer:
+      enabled: true
+      replicas: 1
+    webserver:
+      enabled: false   # Airflow 3.x uses apiServer
+    pgbouncer:
+      enabled: false
+    statsd:
+      enabled: true
+    # Override the OM-dependencies upstream apiServer.extraVolumes entry that
+    # uses `airflow.fullname` for the DAGs PVC claimName. That value diverges
+    # from what the airflow chart actually creates via the `airflow_dags_volume_claim`
+    # helper, which uses `.Release.Name` directly. When useStandardNaming=true
+    # (required to avoid the ConfigMap collision with the OM main chart), the
+    # mismatch turns into:
+    #   - PVC created:       openmetadata-dags
+    #   - ApiServer pod ref: openmetadata-airflow-dags
+    # → api-server pod stays Pending forever with `persistentvolumeclaim
+    # "openmetadata-airflow-dags" not found`. Rewriting the extraVolumes block
+    # to use `.Release.Name` matches what the helper produces, so the api-server
+    # mounts the right PVC. Upstream bug; fix should land in
+    # openmetadata-dependencies/values.yaml eventually.
+    apiServer:
+      replicas: 1
+      extraVolumes:
+        - name: dags
+          persistentVolumeClaim:
+            claimName: '{{ .Release.Name }}-dags'
+      extraVolumeMounts:
+        - name: dags
+          mountPath: /opt/airflow/dags
+
+    dags:
+      gitSync:
+        enabled: false
+    ingress:
+      enabled: false
+
+    serviceAccount:
+      create: true
+      name: openmetadata-airflow
+
+  ingestion:
+    image:
+      repository: registry.clemlab.com/clemlabprojects/openmetadata-ingestion
+      tag: "1.12.6.1.3.2.0-24"
+
+# =============================================================================
+# Atlas federation — wires this OM instance to a remote Apache Atlas service.
+#
+# When `atlasFederation.enabled=true`:
+#   - The post-install hook calls OM REST to create:
+#       * metadataService 'atlas-<releaseName>'
+#       * databaseService 'atlas-<releaseName>-hive' (where Hive entities land)
+#       * ingestionPipeline 'atlas-<releaseName>-metadata-ingest' (cron-scheduled)
+#   - Requires `dependencies.enabled=true` so the airflow runner exists to
+#     execute the pipeline. KDPS flips both together when the form toggle is on.
+# =============================================================================
+atlasFederation:
+  enabled: false
+
+  # Atlas REST endpoint. Used by the OM Atlas connector at ingestion time.
+  hostPort: ""        # e.g. https://atlas.example.com:21443
+
+  # Local Atlas user for the OM ingestion bot. Must already exist in
+  # users-credentials.properties (or equivalent local auth backend).
+  # See seed-atlas-user.sh for the one-shot provisioning script.
+  username: "openmetadata-ingestion"
+
+  # Pick ONE of:
+  #   - existingSecret (string): name of a pre-existing Secret in this
+  #     namespace containing key "password". Recommended.
+  #   - password (string): plain-text password; chart bootstraps a Secret.
+  existingSecret: ""
+  password: ""
+
+  # The OM databaseService(s) where Atlas hive_table entities will be
+  # mapped. Use the OM internal DB-service name (e.g. trino-clemlab).
+  databaseServiceNames:
+    - trino-clemlab
+
+  # Ingestion schedule. Defaults to every 6h.
+  schedule: "0 */6 * * *"

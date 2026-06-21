@@ -1,0 +1,226 @@
+{{- if .Values.atlasFederation.enabled }}
+# -----------------------------------------------------------------------------
+# Post-install Job: register the Atlas federation in this OM instance.
+#
+# Calls the OM REST API to create:
+#   1. metadataService  atlas-<release>   (Atlas connection, used by the
+#                                          UI to show "this is a federated source")
+#   2. databaseService  atlas-<release>-hive
+#                                         (where Atlas-sourced hive_table
+#                                          entities will be created — kept
+#                                          separate from the direct Hive/Trino
+#                                          ingestion so the lineage stays clear)
+#   3. ingestionPipeline atlas-<release>-metadata-ingest
+#                                         (runs on the schedule defined in
+#                                          atlasFederation.schedule via the
+#                                          airflow API server deployed by the
+#                                          dependencies sub-chart)
+#
+# Requires dependencies.enabled=true (airflow runtime); checked at Helm
+# template time below.
+# -----------------------------------------------------------------------------
+{{- if not .Values.dependencies.enabled }}
+{{ fail "atlasFederation.enabled=true requires dependencies.enabled=true (the airflow ingestion runner)" }}
+{{- end }}
+{{- /*
+  Resolve the Secret holding the Atlas password. Priority:
+    1. atlasFederation.existingSecret  — operator-provided, recommended.
+    2. <release>-atlas-credentials     — auto-created by secret-atlas-federation.yaml
+                                          (random pwd on first install, preserved on upgrade).
+*/}}
+{{- $secretName := .Values.atlasFederation.existingSecret | default (printf "%s-atlas-credentials" (include "openmetadata.fullname" .)) }}
+{{- $airflowApi := printf "http://%s-airflow-api-server.%s.svc.cluster.local:8080" .Release.Name .Release.Namespace }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "openmetadata.fullname" . }}-atlas-federation-wire
+  labels:
+    {{- include "openmetadata.labels" . | nindent 4 }}
+    app.kubernetes.io/component: atlas-federation
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "10"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 6
+  ttlSecondsAfterFinished: 1800
+  template:
+    metadata:
+      labels:
+        {{- include "openmetadata.labels" . | nindent 8 }}
+        app.kubernetes.io/component: atlas-federation
+    spec:
+      restartPolicy: OnFailure
+      {{- with (include "openmetadata.imagePullSecrets" .) }}
+      imagePullSecrets:
+        {{- . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: wire
+          image: "{{ .Values.global.imageRegistry }}/openmetadata-ingestion:1.12.6.1.3.2.0-24"
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: OM_HOST
+              value: "http://openmetadata.{{ .Release.Namespace }}.svc.cluster.local:8585"
+            # Fetch the ingestion-bot JWT from OM's postgres at run time (the
+            # token is Fernet-encrypted with the OM fernet key). We avoid
+            # baking a Secret because OM mints the JWT itself at first start;
+            # this Job runs post-install AFTER OM is up.
+            - name: PGHOST
+              value: "openmetadata-postgresql"
+            - name: PGUSER
+              value: "openmetadata_user"
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: openmetadata-postgresql
+                  key: password
+            - name: PGDATABASE
+              value: "openmetadata_db"
+            - name: FERNET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "openmetadata.fullname" . }}-fernet
+                  key: fernet-key
+                  optional: true
+            - name: FERNET_KEY_FALLBACK
+              # default Fernet key shipped with OM helm charts; chart-level
+              # Secret takes precedence when present.
+              value: "jJ/9sz0g0OHxsfxOoSfdFdmk3ysNmPRnH3TUAbz3IHA="
+            - name: ATLAS_HOST_PORT
+              value: {{ .Values.atlasFederation.hostPort | quote }}
+            - name: ATLAS_USER
+              value: {{ .Values.atlasFederation.username | quote }}
+            - name: ATLAS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName }}
+                  key: password
+            - name: ATLAS_SERVICE_NAME
+              value: "atlas-{{ .Release.Name }}"
+            - name: ATLAS_DB_SERVICE_NAME
+              value: "atlas-{{ .Release.Name }}-hive"
+            - name: ATLAS_PIPELINE_NAME
+              value: "atlas-{{ .Release.Name }}-metadata-ingest"
+            - name: ATLAS_SCHEDULE
+              value: {{ .Values.atlasFederation.schedule | quote }}
+            - name: DATABASE_SERVICES_JSON
+              value: {{ .Values.atlasFederation.databaseServiceNames | toJson | quote }}
+            - name: AIRFLOW_API
+              value: {{ $airflowApi | quote }}
+          command:
+            - python3
+            - -c
+            - |
+              import os, json, time, sys, re, subprocess, urllib3
+              import requests
+              from cryptography.fernet import Fernet
+              urllib3.disable_warnings()
+
+              # Wait until OM API responds (ingestion-bot is created at first start).
+              OM = os.environ["OM_HOST"]
+              for _ in range(120):
+                  try:
+                      r = requests.get(f"{OM}/api/v1/system/version", timeout=5)
+                      if r.status_code == 200: break
+                  except Exception: pass
+                  time.sleep(2)
+              else:
+                  print("OM API did not come up in time", file=sys.stderr); sys.exit(1)
+
+              # Fetch encrypted ingestion-bot JWT from postgres
+              env = os.environ.copy()
+              q = ("SELECT json->'authenticationMechanism'->'config'->>'JWTToken' "
+                   "FROM user_entity WHERE name='ingestion-bot'")
+              raw = subprocess.check_output(
+                  ["psql","-h",env["PGHOST"],"-U",env["PGUSER"],"-d",env["PGDATABASE"],"-tA","-c",q],
+                  env=env).decode().strip()
+              if not raw:
+                  print("ingestion-bot has no JWT yet", file=sys.stderr); sys.exit(1)
+
+              ct = re.sub(r'^fernet:', '', raw)
+              key = (env.get("FERNET_KEY") or env["FERNET_KEY_FALLBACK"]).encode()
+              try:
+                  JWT = Fernet(key).decrypt(ct.encode()).decode()
+              except Exception as e:
+                  print(f"Failed to decrypt JWT (wrong fernet key?): {e}", file=sys.stderr); sys.exit(1)
+              HDR = {"Authorization": f"Bearer {JWT}", "Content-Type": "application/json"}
+              def om(method, path, body=None):
+                  r = requests.request(method, f"{OM}/api/v1{path}",
+                                       data=json.dumps(body) if body is not None else None,
+                                       headers=HDR, verify=False)
+                  return r.status_code, r.text
+              # Wait for OM to be up
+              for _ in range(60):
+                  c,_ = om("GET","/system/version")
+                  if c == 200: break
+                  time.sleep(2)
+              # OM expects `databaseServiceName` as a JSON array. The wizard ships
+              # the value as either a single string ("trino-clemlab") or a CSV
+              # ("trino-clemlab,trino-other") depending on form quirks; we accept
+              # both shapes and emit an array uniformly. Empty/whitespace entries
+              # are skipped so a trailing comma in the form doesn't poison the list.
+              dbs_raw = os.environ.get("DATABASE_SERVICES_JSON", "[]")
+              try:
+                  dbs = json.loads(dbs_raw)
+              except Exception:
+                  dbs = dbs_raw
+              if isinstance(dbs, str):
+                  dbs = [s.strip() for s in dbs.split(",") if s.strip()]
+              elif not isinstance(dbs, list):
+                  dbs = [str(dbs)] if dbs else []
+              # 1) metadataService for Atlas
+              code, body = om("PUT", "/services/metadataServices", {
+                  "name": os.environ["ATLAS_SERVICE_NAME"],
+                  "displayName": "Atlas (federated)",
+                  "description": "Federation of Apache Atlas — wired by KDPS.",
+                  "serviceType": "Atlas",
+                  "connection": {"config": {
+                      "type": "Atlas",
+                      "hostPort": os.environ["ATLAS_HOST_PORT"],
+                      "username": os.environ["ATLAS_USER"],
+                      "password": os.environ["ATLAS_PASSWORD"],
+                      "databaseServiceName": dbs,
+                      "messagingServiceName": [],
+                      "supportsMetadataExtraction": True
+                  }}
+              })
+              print(f"metadataService PUT → {code}: {body[:200]}")
+              if code not in (200,201): sys.exit(1)
+              service_id = json.loads(body)["id"]
+
+              # 2) databaseService where Atlas-sourced entities will land
+              code, body = om("PUT", "/services/databaseServices", {
+                  "name": os.environ["ATLAS_DB_SERVICE_NAME"],
+                  "displayName": "Atlas Hive entities (federated)",
+                  "description": "Hive entities ingested from Atlas.",
+                  "serviceType": "CustomDatabase",
+                  "connection": {"config": {
+                      "type": "CustomDatabase",
+                      "sourcePythonClass": "metadata.ingestion.source.database.atlas.metadata.AtlasSource"
+                  }}
+              })
+              print(f"databaseService PUT → {code}: {body[:200]}")
+
+              # 3) ingestionPipeline scheduled via airflow API server
+              code, body = om("PUT", "/services/ingestionPipelines", {
+                  "name": os.environ["ATLAS_PIPELINE_NAME"],
+                  "displayName": "Atlas metadata ingest",
+                  "pipelineType": "metadata",
+                  "service": {"id": service_id, "type": "metadataService"},
+                  "sourceConfig": {"config": {
+                      "type": "DatabaseMetadata",
+                      "markDeletedTables": False,
+                      "includeTables": True, "includeViews": True, "includeTags": True
+                  }},
+                  "airflowConfig": {"scheduleInterval": os.environ["ATLAS_SCHEDULE"]}
+              })
+              print(f"ingestionPipeline PUT → {code}: {body[:200]}")
+              if code not in (200,201): sys.exit(1)
+              pipe_id = json.loads(body)["id"]
+
+              # 4) trigger first run
+              code, body = om("POST", f"/services/ingestionPipelines/trigger/{pipe_id}")
+              print(f"trigger → {code}: {body[:200]}")
+              print("==== Atlas federation wired. First ingestion run is queued in airflow. ====")
+{{- end }}

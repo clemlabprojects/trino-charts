@@ -81,8 +81,19 @@ data:
   JWT_TOKEN_EXPIRY_TIME: {{ .Values.openmetadata.config.authentication.jwtTokenExpiryTime | quote }}
 
   # ── Airflow pipeline client ──────────────────────────────────────────────────
-  PIPELINE_SERVICE_CLIENT_ENABLED: {{ .Values.openmetadata.config.pipelineServiceClientConfig.enabled | quote }}
-  {{- if .Values.openmetadata.config.pipelineServiceClientConfig.apiEndpoint }}
-  PIPELINE_SERVICE_CLIENT_HOST: {{ .Values.openmetadata.config.pipelineServiceClientConfig.apiEndpoint | quote }}
+  # When the sub-chart `openmetadata-dependencies` is enabled, automatically
+  # point OM at the airflow-api-server deployed alongside it. The Service
+  # name is `<release>-airflow-api-server` per the upstream chart template.
+  # Caller can still override by setting pipelineServiceClientConfig.* values
+  # explicitly.
+  {{- $depsEnabled := .Values.dependencies.enabled }}
+  {{- $cfgEnabled := .Values.openmetadata.config.pipelineServiceClientConfig.enabled }}
+  {{- $effEnabled := or $depsEnabled $cfgEnabled }}
+  {{- $cfgEndpoint := .Values.openmetadata.config.pipelineServiceClientConfig.apiEndpoint }}
+  {{- $autoEndpoint := printf "http://%s-airflow-api-server.%s.svc.cluster.local:8080" .Release.Name .Release.Namespace }}
+  {{- $effEndpoint := default $autoEndpoint $cfgEndpoint }}
+  PIPELINE_SERVICE_CLIENT_ENABLED: {{ $effEnabled | quote }}
+  {{- if $effEnabled }}
+  PIPELINE_SERVICE_CLIENT_HOST: {{ $effEndpoint | quote }}
   PIPELINE_SERVICE_CLIENT_HEALTH_CHECK_INTERVAL: {{ .Values.openmetadata.config.pipelineServiceClientConfig.healthCheckInterval | quote }}
   {{- end }}

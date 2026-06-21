@@ -1,0 +1,213 @@
+{{- if .Values.ranger.tagSync.enabled }}
+{{- /*
+  Post-install Job: fetch the OM ingestion-bot JWT and store it in a
+  Kubernetes Secret consumed by Ranger TagSync (which reads it via
+  ranger.tagsync.source.openmetadatarest.token in ranger-tagsync-site).
+
+  Removes the chicken-and-egg in the KDPS wizard where the operator was
+  asked to paste a JWT that the freshly-installed OM hadn't minted yet.
+
+  Idempotent: if the Secret already has the same JWT, exit cleanly.
+*/}}
+{{- $secretName := .Values.ranger.tagSync.tokenSecretName | default (printf "%s-tagsync-token" (include "openmetadata.fullname" .)) }}
+{{- $tokenKey   := .Values.ranger.tagSync.tokenSecretKey  | default "tagsync-token" }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "openmetadata.fullname" . }}-tagsync-jwt-bootstrap
+  labels:
+    {{- include "openmetadata.labels" . | nindent 4 }}
+    app.kubernetes.io/component: tagsync-jwt-bootstrap
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    # Run AFTER the atlas-federation Job (which has weight=10) so OM has
+    # had time to mint the bot's token.
+    "helm.sh/hook-weight": "20"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 6
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata:
+      labels:
+        {{- include "openmetadata.labels" . | nindent 8 }}
+        app.kubernetes.io/component: tagsync-jwt-bootstrap
+    spec:
+      restartPolicy: OnFailure
+      {{- with (include "openmetadata.imagePullSecrets" .) }}
+      imagePullSecrets:
+        {{- . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "openmetadata.fullname" . }}-tagsync-bootstrap
+      containers:
+        - name: bootstrap
+          image: "{{ .Values.global.imageRegistry }}/openmetadata-ingestion:1.12.6.1.3.2.0-24"
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: OM_HOST
+              value: "http://openmetadata.{{ .Release.Namespace }}.svc.cluster.local:8585"
+            - name: PGHOST
+              value: "openmetadata-postgresql"
+            - name: PGUSER
+              value: "openmetadata_user"
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: openmetadata-postgresql
+                  key: password
+            - name: PGDATABASE
+              value: "openmetadata_db"
+            - name: FERNET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "openmetadata.fullname" . }}-fernet
+                  key: fernet-key
+                  optional: true
+            - name: FERNET_KEY_FALLBACK
+              value: "jJ/9sz0g0OHxsfxOoSfdFdmk3ysNmPRnH3TUAbz3IHA="
+            - name: TARGET_NAMESPACE
+              value: {{ .Release.Namespace | quote }}
+            - name: TARGET_SECRET
+              value: {{ $secretName | quote }}
+            - name: TARGET_KEY
+              value: {{ $tokenKey | quote }}
+          command:
+            - bash
+            - -c
+            - |
+              set -eu
+              python3 - <<'PY'
+              import os, json, time, re, subprocess, sys
+              from cryptography.fernet import Fernet
+              import requests, urllib3
+              urllib3.disable_warnings()
+
+              # 1. Wait for OM API to be up
+              OM = os.environ["OM_HOST"]
+              for _ in range(120):
+                  try:
+                      r = requests.get(f"{OM}/api/v1/system/version", timeout=5)
+                      if r.status_code == 200: break
+                  except Exception: pass
+                  time.sleep(2)
+              else:
+                  print("OM API did not respond in time", file=sys.stderr); sys.exit(1)
+
+              # 2. Pull the CURRENT (possibly short-lived) JWT from postgres so
+              #    we can authenticate to OM and rotate the bot's TTL.
+              q = ("SELECT json->'authenticationMechanism'->'config'->>'JWTToken' "
+                   "FROM user_entity WHERE name='ingestion-bot'")
+              raw = subprocess.check_output(
+                  ["psql","-h",os.environ["PGHOST"],"-U",os.environ["PGUSER"],
+                   "-d",os.environ["PGDATABASE"],"-tA","-c",q]).decode().strip()
+              if not raw:
+                  print("ingestion-bot has no JWT yet", file=sys.stderr); sys.exit(1)
+              ct = re.sub(r'^fernet:', '', raw)
+              key = (os.environ.get("FERNET_KEY") or os.environ["FERNET_KEY_FALLBACK"]).encode()
+              jwt = Fernet(key).decrypt(ct.encode()).decode()
+              print(f"decoded current JWT length: {len(jwt)}", file=sys.stderr)
+
+              # 3. Set the bot's JWTTokenExpiry to 'Unlimited' so the token we
+              #    are about to mint never breaks Ranger TagSync. OM's bot
+              #    auth-mechanism PUT regenerates the JWT with the new TTL.
+              hdr = {"Authorization": f"Bearer {jwt}", "Content-Type": "application/json"}
+              # Find the bot UUID
+              r = requests.get(f"{OM}/api/v1/users/name/ingestion-bot", headers=hdr, verify=False)
+              if r.status_code != 200:
+                  print(f"GET ingestion-bot failed: {r.status_code} {r.text[:200]}", file=sys.stderr); sys.exit(1)
+              bot = r.json()
+              bot_id = bot["id"]
+              print(f"ingestion-bot id={bot_id}", file=sys.stderr)
+
+              # Rotate to Unlimited via the user-token endpoint.
+              # POST /v1/users/security/token returns a new JWT with the requested TTL.
+              r = requests.put(
+                  f"{OM}/api/v1/users/security/token",
+                  headers=hdr,
+                  json={"JWTTokenExpiry": "Unlimited"},
+                  verify=False,
+              )
+              if r.status_code in (200, 201):
+                  jwt = r.json().get("JWTToken") or jwt
+                  print("rotated to Unlimited JWT", file=sys.stderr)
+              else:
+                  # Fall back to PATCH of the auth mechanism on the bot entity itself.
+                  r = requests.patch(
+                      f"{OM}/api/v1/users/{bot_id}",
+                      headers={**hdr, "Content-Type":"application/json-patch+json"},
+                      json=[{"op":"replace",
+                             "path":"/authenticationMechanism/config/JWTTokenExpiry",
+                             "value":"Unlimited"}],
+                      verify=False,
+                  )
+                  if r.status_code in (200, 204):
+                      # Re-fetch the JWT (regenerated by the PATCH)
+                      raw2 = subprocess.check_output(
+                          ["psql","-h",os.environ["PGHOST"],"-U",os.environ["PGUSER"],
+                           "-d",os.environ["PGDATABASE"],"-tA","-c",q]).decode().strip()
+                      jwt = Fernet(key).decrypt(re.sub(r'^fernet:','',raw2).encode()).decode()
+                      print("re-fetched JWT after PATCH", file=sys.stderr)
+                  else:
+                      print(f"WARN: could not rotate TTL ({r.status_code}); using current short-lived JWT", file=sys.stderr)
+
+              # 4. Write to /tmp for the kubectl secret create below
+              open("/tmp/jwt","w").write(jwt)
+              PY
+
+              # 5. Create/patch the Secret consumed by Ranger TagSync
+              kubectl create secret generic "$TARGET_SECRET" \
+                --namespace "$TARGET_NAMESPACE" \
+                --from-file=$TARGET_KEY=/tmp/jwt \
+                --dry-run=client -o yaml \
+                | kubectl apply -f -
+              echo "  ✓ Secret $TARGET_SECRET in $TARGET_NAMESPACE has key $TARGET_KEY (JWT)"
+---
+# Minimal RBAC so the Job can create/patch the Secret.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "openmetadata.fullname" . }}-tagsync-bootstrap
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "openmetadata.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "19"
+    "helm.sh/hook-delete-policy": before-hook-creation
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "openmetadata.fullname" . }}-tagsync-bootstrap
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "openmetadata.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "19"
+    "helm.sh/hook-delete-policy": before-hook-creation
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get","list","create","patch","update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "openmetadata.fullname" . }}-tagsync-bootstrap
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "openmetadata.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "19"
+    "helm.sh/hook-delete-policy": before-hook-creation
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "openmetadata.fullname" . }}-tagsync-bootstrap
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "openmetadata.fullname" . }}-tagsync-bootstrap
+    namespace: {{ .Release.Namespace }}
+{{- end }}
