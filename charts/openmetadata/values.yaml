@@ -500,29 +500,12 @@ dependencies:
       - name: _PIP_ADDITIONAL_REQUIREMENTS
         value: ""
 
-    # The airflow chart's embedded postgresql is disabled — we share the OM
-    # postgres. The airflow_db database is created at install via the
-    # bootstrap Job below.
-    postgresql:
-      enabled: false
-
-    data:
-      metadataConnection:
-        protocol: postgresql
-        host: openmetadata-postgresql
-        port: 5432
-        db: airflow_db
-        user: openmetadata_user
-        pass: openmetadata    # same secret already used by OM main app
-        sslmode: disable
-      resultBackendConnection:
-        protocol: db+postgresql
-        host: openmetadata-postgresql
-        port: 5432
-        db: airflow_db
-        user: openmetadata_user
-        pass: openmetadata
-        sslmode: disable
+    # Use the upstream-default bundled PostgreSQL for Airflow. Previous
+    # iterations of this chart consolidated to OM's main PostgreSQL and
+    # required a custom airflow-db-bootstrap helm hook Job to create the
+    # airflow_db database — the Job became a single point of failure on
+    # cross-node networking issues and pushed us away from the upstream
+    # design. Reverted: each component gets its own postgres pod.
 
     airflowLocalDag:
       image:
