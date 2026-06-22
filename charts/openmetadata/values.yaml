@@ -437,18 +437,24 @@ dependencies:
     registry:
       secretName: ~
 
+    # Use the bigtop-built airflow image (apache/airflow:3.0.2 + FAB provider 2.4.4
+    # + Kerberos client + postgresql-client baked in). Source:
+    # ~/odp-stack/bigtop-packages/src/common/airflow/. The bake-in lets us set
+    # _PIP_ADDITIONAL_REQUIREMENTS="" below — airgapped ODP clusters cannot reach
+    # PyPI at runtime, so the upstream chart's runtime pip install workaround
+    # would otherwise hang every migration on `Network is unreachable`.
     defaultAirflowRepository: registry.clemlab.com/clemlabprojects/airflow
-    defaultAirflowTag: "3.0.2"
+    defaultAirflowTag: "3.0.2.1.3.2.0-1"
     defaultAirflowDigest: ~
 
     images:
       airflow:
         repository: registry.clemlab.com/clemlabprojects/airflow
-        tag: "3.0.2"
+        tag: "3.0.2.1.3.2.0-1"
         pullPolicy: IfNotPresent
       pod_template:
         repository: registry.clemlab.com/clemlabprojects/airflow
-        tag: "3.0.2"
+        tag: "3.0.2.1.3.2.0-1"
         pullPolicy: IfNotPresent
       statsd:
         repository: registry.clemlab.com/clemlabprojects/statsd-exporter
@@ -470,6 +476,29 @@ dependencies:
         repository: registry.clemlab.com/clemlabprojects/git-sync
         tag: v4.3.0
         pullPolicy: IfNotPresent
+
+    # Helm merges list-typed values by REPLACEMENT (not deep-merge), so we mirror
+    # the openmetadata-dependencies chart's airflow.env list IN FULL here. The
+    # single substantive change: `_PIP_ADDITIONAL_REQUIREMENTS` is empty because
+    # apache-airflow-providers-fab==2.4.4 is baked into our bigtop-built airflow
+    # image (registry.clemlab.com/clemlabprojects/airflow:3.0.2.1.3.2.0-1 — see
+    # ~/odp-stack/bigtop-packages/src/common/airflow/). Without this override
+    # the OM-deps default triggers a runtime `pip install` from PyPI that fails
+    # on airgapped ODP clusters ("Network is unreachable") and stalls every
+    # `airflow db migrate` init container.
+    env:
+      - name: AIRFLOW__API__AUTH_BACKENDS
+        value: "airflow.api.auth.backend.session,airflow.api.auth.backend.basic_auth"
+      - name: AIRFLOW__OPENMETADATA_AIRFLOW_APIS__DAG_GENERATED_CONFIGS
+        value: "/opt/airflow/dags"
+      - name: AIRFLOW__OPENMETADATA_SECRETS_MANAGER__AWS_REGION
+        value: ""
+      - name: AIRFLOW__OPENMETADATA_SECRETS_MANAGER__AWS_ACCESS_KEY_ID
+        value: ""
+      - name: AIRFLOW__OPENMETADATA_SECRETS_MANAGER__AWS_ACCESS_KEY
+        value: ""
+      - name: _PIP_ADDITIONAL_REQUIREMENTS
+        value: ""
 
     # The airflow chart's embedded postgresql is disabled — we share the OM
     # postgres. The airflow_db database is created at install via the
