@@ -426,14 +426,39 @@ dependencies:
     # See AMBARI-475 (and the eventual external-DB option) for the rationale.
     postgresql:
       enabled: true
-      # Use the same custom Bitnami-layout postgres image we already pull for
-      # OM's main postgres — saves a registry hop and we already test it.
+      # Only override the tag — the bitnami sub-chart already templates
+      # `{{ global.imageRegistry }}/{{ image.repository }}` and our global
+      # imageRegistry resolves to `registry.clemlab.com/clemlabprojects` (set
+      # at the OM main chart level). Overriding registry+repository here on
+      # top of that produces a doubled path
+      # `registry.clemlab.com/clemlabprojects/clemlabprojects/bitnami/postgresql`
+      # which doesn't exist on Harbor.
       image:
-        registry: registry.clemlab.com
-        repository: clemlabprojects/bitnami/postgresql
         tag: "18.0-clemlab-1"
-      # Avoid the default `<release>-postgresql` service name; it collides
-      # name-for-name with OM's main postgres in the same namespace.
+      # CRITICAL: BOTH nameOverride AND fullnameOverride are needed.
+      #
+      # The OM chart instantiates the bitnami postgresql sub-chart TWICE in
+      # the same namespace: once as OM's own metadata store (under
+      # `postgresql:` at the top level of values.yaml) and once here as
+      # airflow's metadata store. Without nameOverride, both instances label
+      # their pods identically — `app.kubernetes.io/name=postgresql` +
+      # `instance=<release>` + `component=primary` — because those labels are
+      # built from {{ .Chart.Name }} (always "postgresql") and the parent
+      # release.
+      #
+      # The bitnami chart's Service selector is built from the SAME labels.
+      # So both Services (openmetadata-postgresql, openmetadata-airflow-postgresql)
+      # match BOTH pods. kube-proxy round-robins 50/50 between OM's postgres
+      # and airflow's postgres. Half the airflow migrations connect to OM's
+      # postgres (no airflow_user → FATAL: password authentication failed
+      # for user "airflow_user"), half the OM queries hit airflow's postgres
+      # (no openmetadata_user → mirror failure).
+      #
+      # nameOverride changes `app.kubernetes.io/name` to "airflow-postgresql"
+      # — distinct from OM's "postgresql" — so the selectors don't overlap.
+      # fullnameOverride keeps the service name predictable for the
+      # data.metadataConnection.host below.
+      nameOverride: "airflow-postgresql"
       fullnameOverride: "openmetadata-airflow-postgresql"
       auth:
         username: airflow_user
