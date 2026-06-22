@@ -409,6 +409,63 @@ dependencies:
   airflow:
     enabled: true
 
+    # Airflow gets its OWN bundled postgres (separate from the OM main chart's
+    # `openmetadata-postgresql`). Upstream openmetadata-dependencies disables
+    # this sub-chart AND defaults metadataConnection.host to a literal "mysql"
+    # — which DNS-fails because no such service exists — so a fresh install
+    # times out at the post-install hook (the airflow migrations Job loops on
+    # `Unknown server host 'mysql'`). Two compounding choices fix it:
+    #
+    #   1. Re-enable airflow's bitnami postgresql sub-chart.
+    #   2. Override the bundled postgres' fullnameOverride so it doesn't claim
+    #      the `<release>-postgresql` service name that OM's own postgres
+    #      already owns (both would race on `openmetadata-postgresql`).
+    #   3. Point data.metadataConnection at the renamed bundled postgres so
+    #      the migrations Job + scheduler init container connect cleanly.
+    #
+    # See AMBARI-475 (and the eventual external-DB option) for the rationale.
+    postgresql:
+      enabled: true
+      # Use the same custom Bitnami-layout postgres image we already pull for
+      # OM's main postgres — saves a registry hop and we already test it.
+      image:
+        registry: registry.clemlab.com
+        repository: clemlabprojects/bitnami/postgresql
+        tag: "18.0-clemlab-1"
+      # Avoid the default `<release>-postgresql` service name; it collides
+      # name-for-name with OM's main postgres in the same namespace.
+      fullnameOverride: "openmetadata-airflow-postgresql"
+      auth:
+        username: airflow_user
+        password: airflow_pass
+        database: airflow_db
+      primary:
+        persistence:
+          enabled: true
+          size: 10Gi
+
+    data:
+      # Mirrors the airflow-postgres credentials above. Set host explicitly to
+      # the renamed bundled postgres so the chart's
+      # `<release>-postgresql.<ns>` default doesn't kick in and accidentally
+      # point at OM's main postgres.
+      metadataConnection:
+        user: airflow_user
+        pass: airflow_pass
+        protocol: postgresql
+        host: openmetadata-airflow-postgresql
+        port: 5432
+        db: airflow_db
+        sslmode: disable
+      resultBackendConnection:
+        user: airflow_user
+        pass: airflow_pass
+        protocol: postgresql
+        host: openmetadata-airflow-postgresql
+        port: 5432
+        db: airflow_db
+        sslmode: disable
+
     # `useStandardNaming: true` is REQUIRED, not optional:
     #
     #   1. With the chart's default `useStandardNaming: false`, every airflow
