@@ -94,6 +94,19 @@ data:
   {{- $effEndpoint := default $autoEndpoint $cfgEndpoint }}
   PIPELINE_SERVICE_CLIENT_ENABLED: {{ $effEnabled | quote }}
   {{- if $effEnabled }}
+  # OpenMetadata's server config reads `apiEndpoint` from PIPELINE_SERVICE_CLIENT_ENDPOINT
+  # (openmetadata.yaml: apiEndpoint: ${PIPELINE_SERVICE_CLIENT_ENDPOINT:-http://localhost:8080}).
+  # PIPELINE_SERVICE_CLIENT_HOST is a legacy name the server no longer reads — emitting only
+  # HOST makes apiEndpoint fall back to localhost:8080, so the server can't reach the Airflow
+  # API server and EVERY pipeline deploy fails (400) → no DAG → no ingestion. Emit ENDPOINT
+  # (and keep HOST for backward-compat with older OpenMetadata builds).
+  PIPELINE_SERVICE_CLIENT_ENDPOINT: {{ $effEndpoint | quote }}
   PIPELINE_SERVICE_CLIENT_HOST: {{ $effEndpoint | quote }}
   PIPELINE_SERVICE_CLIENT_HEALTH_CHECK_INTERVAL: {{ .Values.openmetadata.config.pipelineServiceClientConfig.healthCheckInterval | quote }}
+  # The ingestion pipelines' OpenMetadata client connects BACK to the OM server using this
+  # URL (openmetadata.yaml: metadataApiEndpoint: ${SERVER_HOST_API_URL:-http://localhost:8585/api}).
+  # The airflow ingestion runs in a SEPARATE pod, so the localhost default is wrong — the
+  # pipeline deploys + the DAG is generated, but the workflow's OM client can't reach
+  # localhost:8585 and ingestion fails (no federated data). Point it at the in-cluster OM Service.
+  SERVER_HOST_API_URL: {{ printf "http://%s.%s.svc.cluster.local:%v/api" (include "openmetadata.fullname" .) .Release.Namespace .Values.openmetadata.config.port | quote }}
   {{- end }}
