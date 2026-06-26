@@ -179,6 +179,50 @@ hadoopConf:
   mountPath: /etc/hadoop/conf
   setEnv: true  # export HADOOP_CONF_DIR=/etc/hadoop/conf
 
+  # ------------------------------------------------------------------
+  # Hadoop LdapGroupsMapping overlay
+  # ------------------------------------------------------------------
+  # When enabled, an init container appends LdapGroupsMapping properties
+  # to core-site.xml at pod startup so Ranger's plugin can resolve user
+  # groups against an LDAP/FreeIPA directory.  Required for Trino because
+  # the upstream container image doesn't ship SSSD/nslcd, so the default
+  # ShellBasedUnixGroupsMapping returns no groups for OIDC-authenticated
+  # users (everything appears as "no groups" → group-based Ranger
+  # policies never match).
+  #
+  # The original Hadoop ConfigMap (set above) provides the read-only
+  # base; this overlay layers LdapGroupsMapping on top into a writable
+  # /etc/hadoop/conf served from an emptyDir volume.
+  groupMapping:
+    enabled: false
+    ldap:
+      # LDAP/IPA server endpoint. For TLS use ldaps://...:636 and provide
+      # a CA bundle via the existing truststore mount.
+      url: ""
+      # Bind user — IPA hides memberOf from anonymous reads, so an
+      # authenticated bind is required.  Read-only IPA service account
+      # is recommended over reusing the admin user.
+      bindUser: ""
+      # Bind password sourced from a Kubernetes Secret to keep it out of
+      # values.yaml. The chart mounts <secretName>:<key> to a file and
+      # passes its path to Hadoop via
+      # hadoop.security.group.mapping.ldap.bind.password.file.
+      bindPasswordSecret:
+        name: ""
+        key: "password"
+      # Common LDAP search settings — defaults below match FreeIPA's
+      # accounts subtree.
+      baseDn: ""
+      userSearchFilter: "(&(objectClass=person)(uid={0}))"
+      groupSearchFilter: "(objectClass=posixGroup)"
+      memberAttr: "member"           # IPA stores membership in `member`
+      groupNameAttr: "cn"
+      # Caching — avoid hammering LDAP on every Ranger access decision.
+      cacheSeconds: 300
+      negativeCacheSeconds: 30
+      readTimeoutMs: 10000
+      connectionTimeoutMs: 5000
+
 # =========================
 # Ranger integration (coordinator-only)
 # =========================
