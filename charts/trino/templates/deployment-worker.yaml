@@ -118,7 +118,9 @@ spec:
         {{- end }}
 
         # ---------- Hadoop configs (core-site.xml / hdfs-site.xml) ----------
-        {{- if and .Values.hadoopConf.enabled .Values.hadoopConf.configMapName }}
+        {{- if eq (include "trino.hadoopConf.groupMapping.enabled" .) "true" }}
+        {{- include "trino.hadoopConf.groupMapping.volumes" . | nindent 8 }}
+        {{- else if and .Values.hadoopConf.enabled .Values.hadoopConf.configMapName }}
         - name: hadoop-conf
           configMap:
             name: {{ .Values.hadoopConf.configMapName }}
@@ -164,11 +166,13 @@ spec:
             {{- end }}
       {{- end }}
       {{- $httpsInit := and .Values.server.config.https.keystore.secretName .Values.server.config.https.keystore.passwordSecretName .Values.server.config.https.enabled -}}
-      {{- if or .Values.initContainers.worker $httpsInit }}
+      {{- $groupMappingInit := eq (include "trino.hadoopConf.groupMapping.enabled" .) "true" -}}
+      {{- if or .Values.initContainers.worker $httpsInit $groupMappingInit }}
       initContainers:
       {{- if .Values.initContainers.worker }}
       {{- tpl (toYaml .Values.initContainers.worker) . | nindent 6 }}
       {{- end }}
+      {{- include "trino.hadoopConf.groupMapping.initContainer" . | nindent 8 }}
       {{- if $httpsInit }}
         - name: init-https-keystore
           image: {{ include "trino.busybox.image" (dict "root" .) }}
@@ -272,7 +276,9 @@ spec:
             {{- end }}
 
             # ---------- Hadoop conf mount ----------
-            {{- if and .Values.hadoopConf.enabled (or .Values.hadoopConf.configMapName .Values.hadoopConf.secretName) }}
+            {{- if eq (include "trino.hadoopConf.groupMapping.enabled" .) "true" }}
+            {{- include "trino.hadoopConf.groupMapping.volumeMounts" . | nindent 12 }}
+            {{- else if and .Values.hadoopConf.enabled (or .Values.hadoopConf.configMapName .Values.hadoopConf.secretName) }}
             - name: hadoop-conf
               mountPath: {{ .Values.hadoopConf.mountPath | default "/etc/hadoop/conf" }}
             {{- end }}

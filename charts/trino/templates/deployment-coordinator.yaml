@@ -185,6 +185,11 @@ spec:
         {{- end }}
         {{- end }}
         # ---------- Hadoop configs (core-site.xml / hdfs-site.xml) ----------
+        {{- if eq (include "trino.hadoopConf.groupMapping.enabled" .) "true" }}
+        # groupMapping overlay enabled: original is mounted to /original via init,
+        # merged copy is what the main container reads at hadoopConf.mountPath.
+        {{- include "trino.hadoopConf.groupMapping.volumes" . | nindent 8 }}
+        {{- else }}
         {{- if and .Values.hadoopConf.enabled .Values.hadoopConf.configMapName }}
         - name: hadoop-conf
           configMap:
@@ -194,6 +199,7 @@ spec:
         - name: hadoop-conf
           secret:
             secretName: {{ .Values.hadoopConf.secretName }}
+        {{- end }}
         {{- end }}
         {{ include "trino.truststore.volume" . | nindent 8 }}
         {{ include "trino.vault.volume" . | nindent 8 }}
@@ -218,7 +224,7 @@ spec:
               - key: {{ default "service.keytab" $kerb.keytab.secretDataKey }}
                 path: {{ default "service.keytab" $kerb.keytab.secretDataKey }}
         {{- end }}
-      {{- if or .Values.initContainers.coordinator (and .Values.server.config.https.keystore.secretName .Values.server.config.https.keystore.passwordSecretName .Values.server.config.https.enabled) }}
+      {{- if or .Values.initContainers.coordinator (and .Values.server.config.https.keystore.secretName .Values.server.config.https.keystore.passwordSecretName .Values.server.config.https.enabled) (eq (include "trino.hadoopConf.groupMapping.enabled" .) "true") }}
       initContainers:
       {{- if $rangerEnabled }}
         - name: init-ranger-dirs
@@ -229,6 +235,7 @@ spec:
             - name: ranger-dir
               mountPath: /etc/trino/ranger
       {{- end }}
+      {{- include "trino.hadoopConf.groupMapping.initContainer" . | nindent 8 }}
       {{- if and .Values.server.config.https.keystore.secretName .Values.server.config.https.keystore.passwordSecretName .Values.server.config.https.enabled }}
         - name: init-https-keystore
           image: {{ include "trino.busybox.image" (dict "root" .) }}
@@ -380,7 +387,9 @@ spec:
             {{- end }}
 
             # ---------- Hadoop conf mount ----------
-            {{- if and .Values.hadoopConf.enabled (or .Values.hadoopConf.configMapName .Values.hadoopConf.secretName) }}
+            {{- if eq (include "trino.hadoopConf.groupMapping.enabled" .) "true" }}
+            {{- include "trino.hadoopConf.groupMapping.volumeMounts" . | nindent 12 }}
+            {{- else if and .Values.hadoopConf.enabled (or .Values.hadoopConf.configMapName .Values.hadoopConf.secretName) }}
             - name: hadoop-conf
               mountPath: {{ .Values.hadoopConf.mountPath | default "/etc/hadoop/conf" }}
             {{- end }}
