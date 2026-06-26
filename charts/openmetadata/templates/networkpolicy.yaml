@@ -92,7 +92,17 @@ spec:
         - protocol: TCP
           port: {{ $oidcPort | int }}
         {{- end }}
-    # Kerberos KDC
+    # Airflow api-server (managed-apis). The OM server pod is isolated by this policy, so it
+    # needs explicit egress to deploy/trigger/query ingestion pipelines over
+    # PIPELINE_SERVICE_CLIENT_ENDPOINT (the airflow api-server, port 8080). Without it every
+    # pipeline call times out (~15s) → 400 → no ingestion DAG is generated → no federated data.
+    - to:
+        - podSelector:
+            matchLabels:
+              tier: airflow
+      ports:
+        - protocol: TCP
+          port: 8080
     {{- if .Values.global.security.kerberos.enabled }}
     - ports:
         - protocol: TCP

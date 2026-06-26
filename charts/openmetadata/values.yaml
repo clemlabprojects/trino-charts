@@ -82,7 +82,7 @@ global:
 image:
   registry: "registry.clemlab.com/clemlabprojects"
   repository: "openmetadata"
-  tag: "1.12.6.1.3.2.0-2"
+  tag: "1.12.6.1.3.2.0-24"
   pullPolicy: IfNotPresent
 
 nameOverride: ""
@@ -232,7 +232,7 @@ ingestion:
   image:
     registry: "registry.clemlab.com/clemlabprojects"
     repository: "openmetadata-ingestion"
-    tag: "1.12.6.1.3.2.0-2"
+    tag: "1.12.6.1.3.2.0-24"
     pullPolicy: IfNotPresent
   replicaCount: 1
   resources:
@@ -519,24 +519,32 @@ dependencies:
     registry:
       secretName: ~
 
-    # Use the bigtop-built airflow image (apache/airflow:3.0.2 + FAB provider 2.4.4
-    # + Kerberos client + postgresql-client baked in). Source:
-    # ~/odp-stack/bigtop-packages/src/common/airflow/. The bake-in lets us set
-    # _PIP_ADDITIONAL_REQUIREMENTS="" below — airgapped ODP clusters cannot reach
-    # PyPI at runtime, so the upstream chart's runtime pip install workaround
-    # would otherwise hang every migration on `Network is unreachable`.
-    defaultAirflowRepository: registry.clemlab.com/clemlabprojects/airflow
-    defaultAirflowTag: "3.0.2.1.3.2.0-1"
+    # IMPORTANT: the Airflow scheduler / api-server / dag-processor MUST run the
+    # OpenMetadata *ingestion* image, not a vanilla Airflow image. OM's server
+    # deploys + triggers pipelines through the `openmetadata-managed-apis` Flask
+    # plugin (served by the api-server), and the DAGs import the OM ingestion
+    # connectors (hive/trino/atlas/…). A plain Airflow image has NEITHER, so OM's
+    # pipeline deploy fails (HTTP 400 — "no working Airflow API endpoint") and
+    # nothing is ever ingested. The ODP-built ingestion image bundles managed-apis
+    # + all connectors + the Kerberos client (kinit/klist), matching the upstream
+    # OpenMetadata design where one image serves every Airflow role.
+    #
+    # The lean clemlabprojects/airflow:3.0.2 image previously wired here lacked
+    # both the plugin and the connectors — it could neither deploy nor run any
+    # ingestion. Ingestion image source:
+    # ~/odp-stack/bigtop-packages/src/common/openmetadata/.
+    defaultAirflowRepository: registry.clemlab.com/clemlabprojects/openmetadata-ingestion
+    defaultAirflowTag: "1.12.6.1.3.2.0-24"
     defaultAirflowDigest: ~
 
     images:
       airflow:
-        repository: registry.clemlab.com/clemlabprojects/airflow
-        tag: "3.0.2.1.3.2.0-1"
+        repository: registry.clemlab.com/clemlabprojects/openmetadata-ingestion
+        tag: "1.12.6.1.3.2.0-24"
         pullPolicy: IfNotPresent
       pod_template:
-        repository: registry.clemlab.com/clemlabprojects/airflow
-        tag: "3.0.2.1.3.2.0-1"
+        repository: registry.clemlab.com/clemlabprojects/openmetadata-ingestion
+        tag: "1.12.6.1.3.2.0-24"
         pullPolicy: IfNotPresent
       statsd:
         repository: registry.clemlab.com/clemlabprojects/statsd-exporter
@@ -595,6 +603,30 @@ dependencies:
         tag: "1.12.6.1.3.2.0-24"
 
     executor: KubernetesExecutor
+    # Mount the cluster (Clemlab internal) CA so the python ingestion — requests-based, e.g.
+    # the Atlas connector calling https://<atlas>:21443 — trusts cluster TLS endpoints. The
+    # OM SERVER is Java and trusts via its JKS truststore; the airflow/ingestion side is python
+    # and needs the PEM CA via REQUESTS_CA_BUNDLE. `ca.crt` comes from the same operator-
+    # provisioned truststore secret (openmetadata-truststore). These TOP-LEVEL airflow keys
+    # propagate to every airflow pod AND the KubernetesExecutor task pods (the chart's
+    # pod-template-file includes .Values.volumes/.Values.volumeMounts/.Values.env). The secret
+    # is optional so a deploy without a provisioned truststore still starts. Without this the
+    # Atlas connector fails TLS verification (CERTIFICATE_VERIFY_FAILED) → ingestion → no data.
+    env:
+      - name: REQUESTS_CA_BUNDLE
+        value: /opt/airflow/certs/ca.crt
+    volumes:
+      - name: cluster-ca
+        secret:
+          secretName: openmetadata-truststore
+          optional: true
+          items:
+            - key: ca.crt
+              path: ca.crt
+    volumeMounts:
+      - name: cluster-ca
+        mountPath: /opt/airflow/certs
+        readOnly: true
     scheduler:
       replicas: 1
     # Logs PVC uses ReadWriteMany hardcoded in the airflow sub-chart template
@@ -612,6 +644,18 @@ dependencies:
     triggerer:
       enabled: true
       replicas: 1
+      # The triggerer StatefulSet's OWN logs volumeClaimTemplate (triggerer.persistence,
+      # default ON in the airflow sub-chart) creates a per-pod RWO PVC
+      # (logs-<release>-airflow-triggerer-0). On the node-pinned local-path provisioner
+      # that PVC sticks to one node; combined with the shared RWO `dags` PVC pinned to a
+      # DIFFERENT node, the triggerer becomes unschedulable after a reboot scatters the
+      # local-path PVs (no single node satisfies both) → helm --wait times out
+      # ("context deadline exceeded") and the install step fails. Disable it → emptyDir
+      # logs → the triggerer depends only on the shared dags volume and always co-locates
+      # with the dag-processor. Ephemeral triggerer logs are fine for non-prod; operators
+      # with an RWX provisioner can re-enable.
+      persistence:
+        enabled: false
     webserver:
       enabled: false   # Airflow 3.x uses apiServer
     pgbouncer:
