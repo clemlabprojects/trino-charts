@@ -615,6 +615,12 @@ dependencies:
     env:
       - name: REQUESTS_CA_BUNDLE
         value: /opt/airflow/certs/ca.crt
+      # Point every airflow pod (incl. KubernetesExecutor task pods, which run the
+      # actual ingestion) at a shared Kerberos ccache. The kinit-bootstrap init
+      # container (workers, below) fills it from the KDPS-provisioned OM ingestion
+      # keytab; the SPNEGO Hive connector (requests-kerberos) reads it via KRB5CCNAME.
+      - name: KRB5CCNAME
+        value: /var/run/krb5/krb5cc_om
     volumes:
       - name: cluster-ca
         secret:
@@ -623,12 +629,83 @@ dependencies:
           items:
             - key: ca.crt
               path: ca.crt
+      # KDPS mints the OM ingestion principal (oma-ing-<ns>@<realm>) + keytab into this
+      # Secret via the kerberos-keytab webhook (driven by the OM deployments' needs-keytab
+      # annotation). The airflow pods mount it read-only and kinit with it. optional:true
+      # so non-kerberized installs still start. Default name matches release "openmetadata";
+      # the wizard can override secretName for other release names.
+      - name: ingestion-keytab
+        secret:
+          secretName: openmetadata-ingestion-keytab
+          optional: true
+          items:
+            - key: service.keytab
+              path: service.keytab
+      - name: krb5-cache
+        emptyDir: {}
     volumeMounts:
       - name: cluster-ca
         mountPath: /opt/airflow/certs
         readOnly: true
+      - name: ingestion-keytab
+        mountPath: /etc/security/keytabs
+        readOnly: true
+      - name: krb5-cache
+        mountPath: /var/run/krb5
+    # KubernetesExecutor task pods (where ingestion runs) obtain the TGT via this init
+    # container: it auto-detects the principal FROM the injected keytab (avoids hardcoding
+    # oma-ing vs openmetadata-ingestion) and kinit's into the shared ccache. Tolerant — a
+    # missing keytab (non-kerberized install) is logged, not fatal, so it never blocks pods.
+    workers:
+      extraInitContainers:
+        - name: kinit-bootstrap
+          image: registry.clemlab.com/clemlabprojects/openmetadata-ingestion:1.12.6.1.3.2.0-24
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -c
+            - |
+              KT=/etc/security/keytabs/service.keytab
+              export KRB5CCNAME=/var/run/krb5/krb5cc_om
+              if [ -f "$KT" ]; then
+                princ=$(klist -kt "$KT" 2>/dev/null | awk 'NR>3 && $NF ~ /@/ {print $NF; exit}')
+                if [ -n "$princ" ]; then echo "kinit as $princ"; kinit -kt "$KT" "$princ"; else echo "no principal in $KT; skipping"; fi
+              else
+                echo "no keytab at $KT (non-kerberized); skipping kinit"
+              fi
+          volumeMounts:
+            - name: ingestion-keytab
+              mountPath: /etc/security/keytabs
+              readOnly: true
+            - name: krb5-cache
+              mountPath: /var/run/krb5
     scheduler:
       replicas: 1
+      # Long-running pods keep a fresh ticket via a kinit-renew sidecar (same auto-detect +
+      # tolerant logic, looped) — mainly so the api-server/managed-apis path can use Kerberos.
+      extraContainers:
+        - name: kinit-renew
+          image: registry.clemlab.com/clemlabprojects/openmetadata-ingestion:1.12.6.1.3.2.0-24
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -c
+            - |
+              KT=/etc/security/keytabs/service.keytab
+              export KRB5CCNAME=/var/run/krb5/krb5cc_om
+              while true; do
+                if [ -f "$KT" ]; then
+                  princ=$(klist -kt "$KT" 2>/dev/null | awk 'NR>3 && $NF ~ /@/ {print $NF; exit}')
+                  [ -n "$princ" ] && kinit -kt "$KT" "$princ" || echo "no principal; skip"
+                fi
+                sleep 3600
+              done
+          volumeMounts:
+            - name: ingestion-keytab
+              mountPath: /etc/security/keytabs
+              readOnly: true
+            - name: krb5-cache
+              mountPath: /var/run/krb5
     # Logs PVC uses ReadWriteMany hardcoded in the airflow sub-chart template
     # (intended for shared NFS/EFS backends so multiple airflow pods can write
     # to the same log dir). On a single-node cluster using local-path
