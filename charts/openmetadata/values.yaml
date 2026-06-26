@@ -83,7 +83,9 @@ image:
   registry: "registry.clemlab.com/clemlabprojects"
   repository: "openmetadata"
   tag: "1.12.6.1.3.2.0-24"
-  pullPolicy: IfNotPresent
+  # Always: the OM + ingestion image tags are deliberately force-replaced during ODP
+  # testing (same tag, new content), so IfNotPresent would leave nodes on a stale cache.
+  pullPolicy: Always
 
 nameOverride: ""
 fullnameOverride: ""
@@ -233,7 +235,7 @@ ingestion:
     registry: "registry.clemlab.com/clemlabprojects"
     repository: "openmetadata-ingestion"
     tag: "1.12.6.1.3.2.0-24"
-    pullPolicy: IfNotPresent
+    pullPolicy: Always
   replicaCount: 1
   resources:
     requests:
@@ -544,11 +546,11 @@ dependencies:
       airflow:
         repository: registry.clemlab.com/clemlabprojects/openmetadata-ingestion
         tag: "1.12.6.1.3.2.0-24"
-        pullPolicy: IfNotPresent
+        pullPolicy: Always
       pod_template:
         repository: registry.clemlab.com/clemlabprojects/openmetadata-ingestion
         tag: "1.12.6.1.3.2.0-24"
-        pullPolicy: IfNotPresent
+        pullPolicy: Always
       statsd:
         repository: registry.clemlab.com/clemlabprojects/statsd-exporter
         tag: v0.28.0
