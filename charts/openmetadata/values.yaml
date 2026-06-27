@@ -626,6 +626,18 @@ dependencies:
       # keytab; the SPNEGO Hive connector (requests-kerberos) reads it via KRB5CCNAME.
       - name: KRB5CCNAME
         value: /var/run/krb5/krb5cc_om
+      # Point the MIT krb5 / GSSAPI client at the KDPS-staged krb5.conf (mounted below)
+      # rather than the image default. KDPS writes this ConfigMap with DNS hostname
+      # canonicalization DISABLED (dns_canonicalize_hostname=false, rdns=false); inside
+      # k8s the pod resolver (ndots:5, *.svc.cluster.local search) otherwise rewrites the
+      # external HiveServer2 host to an in-cluster service name, corrupting the SPNEGO
+      # SPN realm ("krbtgt/<svc>.SVC.CLUSTER.LOCAL not found") and failing every Kerberos
+      # ingestion. A dir mount (not subPath) + KRB5_CONFIG keeps non-kerberized installs
+      # starting: if the ConfigMap is absent the dir is empty and krb5 falls back to the
+      # image default. NB the ConfigMap name tracks the Helm release (<release>-krb5-conf);
+      # this default matches the "openmetadata" release set by the KDPS wizard.
+      - name: KRB5_CONFIG
+        value: /etc/krb5-conf-d/krb5.conf
     volumes:
       - name: cluster-ca
         secret:
@@ -634,6 +646,13 @@ dependencies:
           items:
             - key: ca.crt
               path: ca.crt
+      - name: krb5-conf
+        configMap:
+          name: openmetadata-krb5-conf
+          optional: true
+          items:
+            - key: krb5.conf
+              path: krb5.conf
       # KDPS mints the OM ingestion principal (oma-ing-<ns>@<realm>) + keytab into this
       # Secret via the kerberos-keytab webhook (driven by the OM deployments' needs-keytab
       # annotation). The airflow pods mount it read-only and kinit with it. optional:true
@@ -654,6 +673,9 @@ dependencies:
         readOnly: true
       - name: ingestion-keytab
         mountPath: /etc/security/keytabs
+        readOnly: true
+      - name: krb5-conf
+        mountPath: /etc/krb5-conf-d
         readOnly: true
       - name: krb5-cache
         mountPath: /var/run/krb5
