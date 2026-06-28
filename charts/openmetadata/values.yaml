@@ -92,6 +92,12 @@ fullnameOverride: ""
 
 replicaCount: 1
 
+# -- OpenShift-only UID override. On OpenShift the platform assigns an arbitrary
+# non-root UID automatically (recommended → leave null). Set an explicit UID only to
+# pin one; it MUST be inside the namespace's openshift.io/sa.scc.uid-range. Ignored on
+# vanilla Kubernetes, where `podSecurityContext` below applies instead.
+runAsUser: ~
+
 # -- Pod-level security context. fsGroup/fsGroupChangePolicy set by Ambari binding.
 podSecurityContext:
   fsGroup: 1000

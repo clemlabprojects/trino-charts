@@ -36,6 +36,9 @@ spec:
       {{- if .Capabilities.APIVersions.Has "security.openshift.io/v1" }}
       securityContext:
         runAsNonRoot: true
+        {{- if .Values.runAsUser }}
+        runAsUser: {{ .Values.runAsUser }}
+        {{- end }}
       {{- else }}{{- with .Values.podSecurityContext }}
       securityContext:
         {{- toYaml . | nindent 8 }}
