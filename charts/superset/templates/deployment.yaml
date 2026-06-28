@@ -92,7 +92,17 @@ spec:
       {{ . | nindent 8 }}
       {{- end }}      
       securityContext:
+        {{- if .Capabilities.APIVersions.Has "security.openshift.io/v1" }}
+        # OpenShift (restricted-v2 SCC) assigns an arbitrary non-root UID/fsGroup from the
+        # namespace range; forcing runAsUser (esp. 0) is rejected. Run non-root and let the
+        # platform assign the UID. An explicit operator override (runAsUser) still wins.
+        runAsNonRoot: true
+        {{- if .Values.runAsUser }}
         runAsUser: {{ .Values.runAsUser }}
+        {{- end }}
+        {{- else }}
+        runAsUser: {{ .Values.runAsUser | default 0 }}
+        {{- end }}
         {{- if .Values.supersetNode.podSecurityContext }}
           {{- toYaml .Values.supersetNode.podSecurityContext | nindent 8 }}
         {{- end }}
