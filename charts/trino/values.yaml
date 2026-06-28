@@ -735,6 +735,12 @@ sidecarContainers: {}
 #      command: ['sleep', '1']
 # ```
 
+# -- OpenShift-only UID override. On OpenShift the platform assigns an arbitrary
+# non-root UID automatically (recommended → leave null). Set an explicit UID only to
+# pin one; it MUST be inside the namespace's openshift.io/sa.scc.uid-range. Ignored on
+# vanilla Kubernetes, where `securityContext` below applies instead.
+runAsUser: ~
+
 # -- [Pod security context](https://kubernetes.io/docs/tasks/configure-pod-container/security-context/#set-the-security-context-for-a-pod) configuration.
 # To remove the default, set it to null (or `~`).
 securityContext:
