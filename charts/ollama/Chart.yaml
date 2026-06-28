@@ -4,7 +4,7 @@ description: |
   Ollama LLM inference server for the ODP SQL Assistant.
   Deploys the Ollama server with optional model pre-pull and GPU node selector.
 type: application
-version: 0.1.0
+version: 0.1.1
 appVersion: "0.5.13"
 home: https://ollama.ai
 keywords:
