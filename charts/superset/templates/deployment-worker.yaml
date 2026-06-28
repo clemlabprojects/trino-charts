@@ -76,7 +76,7 @@ spec:
       {{ . | nindent 8 }}
       {{- end }}
       securityContext:
-        runAsUser: {{ .Values.runAsUser }}
+        {{- include "superset.podSecurityContext" . | nindent 8 }}
         {{- if .Values.supersetWorker.podSecurityContext }}
           {{- toYaml .Values.supersetWorker.podSecurityContext | nindent 8 }}
         {{- end }}

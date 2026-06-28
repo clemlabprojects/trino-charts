@@ -723,3 +723,22 @@ release: {{ .Release.Name }}
 {{- toYaml $list -}}
 {{- end -}}
 {{- end -}}
+
+{{/*
+Pod-level securityContext body, shared by every Superset Deployment/Job.
+On OpenShift (restricted-v2 SCC) the platform assigns an arbitrary non-root UID/fsGroup from the
+namespace range; forcing runAsUser (especially 0) is rejected, so we run non-root and let the
+platform pick the UID. An explicit operator override (.Values.runAsUser) still wins on either
+platform. On vanilla Kubernetes the legacy default (runAsUser: 0) is preserved.
+Include with: {{- include "superset.podSecurityContext" . | nindent 8 }}
+*/}}
+{{- define "superset.podSecurityContext" -}}
+{{- if .Capabilities.APIVersions.Has "security.openshift.io/v1" }}
+runAsNonRoot: true
+{{- if .Values.runAsUser }}
+runAsUser: {{ .Values.runAsUser }}
+{{- end }}
+{{- else }}
+runAsUser: {{ .Values.runAsUser | default 0 }}
+{{- end }}
+{{- end -}}
