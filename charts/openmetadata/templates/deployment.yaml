@@ -56,7 +56,9 @@ spec:
               done
           securityContext:
             runAsNonRoot: true
+            {{- if not (.Capabilities.APIVersions.Has "security.openshift.io/v1") }}
             runAsUser: 1000
+            {{- end }}
             allowPrivilegeEscalation: false
             capabilities:
               drop: ["ALL"]
@@ -71,7 +73,9 @@ spec:
               done
           securityContext:
             runAsNonRoot: true
+            {{- if not (.Capabilities.APIVersions.Has "security.openshift.io/v1") }}
             runAsUser: 1000
+            {{- end }}
             allowPrivilegeEscalation: false
             capabilities:
               drop: ["ALL"]
@@ -90,10 +94,16 @@ spec:
                 secretKeyRef:
                   name: {{ include "openmetadata.dbPasswordSecretName" . }}
                   key: {{ include "openmetadata.dbPasswordSecretKey" . }}
-          {{- with .Values.containerSecurityContext }}
+          {{- if .Capabilities.APIVersions.Has "security.openshift.io/v1" }}
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          {{- else }}{{- with .Values.containerSecurityContext }}
           securityContext:
             {{- toYaml . | nindent 12 }}
-          {{- end }}
+          {{- end }}{{- end }}
         # Sync auth settings from env vars to DB after every migrate.
         # OpenMetadata's migrate seeds settings only on first install; if the PVC
         # persists across helm uninstall/install the DB row is never updated when
@@ -144,10 +154,16 @@ spec:
         - name: openmetadata
           image: {{ include "openmetadata.resolveImage" (dict "root" . "image" .Values.image) }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          {{- with .Values.containerSecurityContext }}
+          {{- if .Capabilities.APIVersions.Has "security.openshift.io/v1" }}
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          {{- else }}{{- with .Values.containerSecurityContext }}
           securityContext:
             {{- toYaml . | nindent 12 }}
-          {{- end }}
+          {{- end }}{{- end }}
           ports:
             - name: http
               containerPort: {{ .Values.openmetadata.config.port }}

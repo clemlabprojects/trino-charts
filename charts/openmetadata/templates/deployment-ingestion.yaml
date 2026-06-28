@@ -54,7 +54,9 @@ spec:
               done
           securityContext:
             runAsNonRoot: true
+            {{- if not (.Capabilities.APIVersions.Has "security.openshift.io/v1") }}
             runAsUser: 1000
+            {{- end }}
             allowPrivilegeEscalation: false
             capabilities:
               drop: ["ALL"]
@@ -62,10 +64,16 @@ spec:
         - name: ingestion
           image: {{ include "openmetadata.resolveImage" (dict "root" . "image" .Values.ingestion.image) }}
           imagePullPolicy: {{ .Values.ingestion.image.pullPolicy }}
-          {{- with .Values.containerSecurityContext }}
+          {{- if .Capabilities.APIVersions.Has "security.openshift.io/v1" }}
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          {{- else }}{{- with .Values.containerSecurityContext }}
           securityContext:
             {{- toYaml . | nindent 12 }}
-          {{- end }}
+          {{- end }}{{- end }}
           ports:
             - name: airflow-web
               containerPort: 8080
