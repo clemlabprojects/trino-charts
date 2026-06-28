@@ -256,12 +256,28 @@ if AUTH_TYPE == "OIDC":
         def oauth_user_info(self, provider, response=None):
             if provider != 'generic':
                 return {}
-            # Capture id_token from the token-exchange response so logout can
-            # send it as id_token_hint to Keycloak (RP-Initiated Logout). The
-            # response dict is populated by Authlib after the auth-code grant
-            # and carries id_token when 'openid' is in the requested scope.
-            if isinstance(response, dict) and response.get("id_token"):
-                session["oidc_id_token"] = response["id_token"]
+            # Capture id_token so logout can send it as id_token_hint to Keycloak
+            # (RP-Initiated Logout). FAB versions differ on what 'response' carries,
+            # so try it first, then fall back to Authlib's stored token on the remote
+            # app (set during authorize_access_token after the auth-code grant). Without
+            # this the id_token is never stored and /logout silently falls back to a
+            # local-only logout, leaving the Keycloak SSO session alive.
+            _id_token = None
+            if isinstance(response, dict):
+                _id_token = response.get("id_token")
+            if not _id_token:
+                try:
+                    _remote = self.appbuilder.sm.oauth_remotes[provider]
+                    _tok = getattr(_remote, "token", None)
+                    if _tok:
+                        _id_token = _tok.get("id_token")
+                except Exception as _e:
+                    logging.getLogger("superset.security").warning("OIDC id_token capture fallback failed: %s", _e)
+            if _id_token:
+                session["oidc_id_token"] = _id_token
+            else:
+                logging.getLogger("superset.security").warning(
+                    "OIDC: no id_token captured at login; RP-logout will be local-only")
             me = self.appbuilder.sm.oauth_remotes[provider].userinfo()
             username = me.get(_USER_CLAIM) or me.get('preferred_username') or me.get('sub')
             groups = me.get(_GROUPS_CLAIM) or []
