@@ -33,10 +33,13 @@ spec:
         {{- end }}
     spec:
       serviceAccountName: {{ include "openmetadata.serviceAccountName" . }}
-      {{- with .Values.podSecurityContext }}
+      {{- if .Capabilities.APIVersions.Has "security.openshift.io/v1" }}
+      securityContext:
+        runAsNonRoot: true
+      {{- else }}{{- with .Values.podSecurityContext }}
       securityContext:
         {{- toYaml . | nindent 8 }}
-      {{- end }}
+      {{- end }}{{- end }}
       {{- with (include "openmetadata.imagePullSecrets" .) }}
       imagePullSecrets:
         {{- . | nindent 8 }}
