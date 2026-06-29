@@ -18,7 +18,10 @@ metadata:
   {{- end }}
 spec:
   host: {{ $host | quote }}
+  {{- /* passthrough routes cannot carry a path (the router can't read it without terminating TLS) */}}
+  {{- if not $https }}
   path: {{ $path | quote }}
+  {{- end }}
   to:
     kind: Service
     name: {{ include "trino.fullname" . }}
