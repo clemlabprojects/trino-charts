@@ -17,7 +17,10 @@ metadata:
   {{- end }}
 spec:
   host: {{ $host | quote }}
+  {{- /* passthrough routes cannot carry a path (the router can't read it without terminating TLS) */}}
+  {{- if not .Values.openmetadata.config.tls.enabled }}
   path: {{ $path | quote }}
+  {{- end }}
   to:
     kind: Service
     name: {{ include "openmetadata.fullname" . }}
