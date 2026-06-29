@@ -1,0 +1,49 @@
+{{- /* OpenShift Route — emitted only on OpenShift when ingress.enabled AND route.enabled. Replaces Ingress (ingress.yaml suppresses itself under the same condition). */ -}}
+{{- if and .Values.ingress.enabled .Values.route.enabled (.Capabilities.APIVersions.Has "route.openshift.io/v1") }}
+{{- $h := first .Values.ingress.hosts }}
+{{- $host := $h.host }}
+{{- $path := (first $h.paths).path | default "/" }}
+{{- $tlsSecret := "" }}
+{{- if .Values.ingress.tls }}{{- $tlsSecret = (first .Values.ingress.tls).secretName }}{{- end }}
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: {{ include "openmetadata.fullname" . }}
+  labels:
+    {{- include "openmetadata.labels" . | nindent 4 }}
+  {{- with .Values.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  host: {{ $host | quote }}
+  path: {{ $path | quote }}
+  to:
+    kind: Service
+    name: {{ include "openmetadata.fullname" . }}
+    weight: 100
+  port:
+    {{- if .Values.openmetadata.config.tls.enabled }}
+    targetPort: https
+    {{- else }}
+    targetPort: http
+    {{- end }}
+  tls:
+    {{- if .Values.openmetadata.config.tls.enabled }}
+    termination: passthrough
+    insecureEdgeTerminationPolicy: Redirect
+    {{- else }}
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+    {{- if $tlsSecret }}
+    {{- $sec := lookup "v1" "Secret" .Release.Namespace $tlsSecret }}
+    {{- if $sec }}
+    certificate: |-
+      {{- index $sec.data "tls.crt" | b64dec | nindent 6 }}
+    key: |-
+      {{- index $sec.data "tls.key" | b64dec | nindent 6 }}
+    {{- end }}
+    {{- end }}
+    {{- end }}
+  wildcardPolicy: None
+{{- end }}

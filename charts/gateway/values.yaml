@@ -139,6 +139,12 @@ ingress:
   #      - chart-example.local
   # ```
 
+# -- On OpenShift (route.openshift.io/v1 present) the chart emits a native Route instead of
+# the Ingress when ingress.enabled AND route.enabled. Set route.enabled=false to force an
+# Ingress even on OpenShift. No effect on vanilla Kubernetes (Ingress only).
+route:
+  enabled: true
+
 resources:
   limits:
     cpu: 2

@@ -1,0 +1,109 @@
+{{/*
+
+ Licensed to the Apache Software Foundation (ASF) under one or more
+ contributor license agreements.  See the NOTICE file distributed with
+ this work for additional information regarding copyright ownership.
+ The ASF licenses this file to You under the Apache License, Version 2.0
+ (the "License"); you may not use this file except in compliance with
+ the License.  You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+ Unless required by applicable law or agreed to in writing, software
+ distributed under the License is distributed on an "AS IS" BASIS,
+ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ See the License for the specific language governing permissions and
+ limitations under the License.
+
+*/}}
+
+{{- /* OpenShift Route — emitted only on OpenShift when ingress.enabled AND route.enabled. Replaces Ingress (ingress.yaml suppresses itself under the same condition). */ -}}
+{{- if and .Values.ingress.enabled .Values.route.enabled (.Capabilities.APIVersions.Has "route.openshift.io/v1") }}
+{{- $h := first .Values.ingress.hosts }}
+{{- $host := "" }}
+{{- $path := "" }}
+{{- if kindIs "string" $h }}
+{{- $host = $h }}
+{{- $path = .Values.ingress.path | default "/" }}
+{{- else }}
+{{- $host = $h.host }}
+{{- $path = (first $h.paths).path | default .Values.ingress.path | default "/" }}
+{{- end }}
+{{- $tlsSecret := "" }}
+{{- if .Values.ingress.tls }}{{- $tlsSecret = (first .Values.ingress.tls).secretName }}{{- end }}
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: {{ template "superset.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: {{ template "superset.name" . }}
+    chart: {{ template "superset.chart" . }}
+    release: {{ .Release.Name }}
+    heritage: {{ .Release.Service }}
+  {{- with .Values.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  host: {{ $host | quote }}
+  path: {{ $path | quote }}
+  to:
+    kind: Service
+    name: {{ template "superset.fullname" . }}
+    weight: 100
+  port:
+    targetPort: http
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+    {{- if $tlsSecret }}
+    {{- $sec := lookup "v1" "Secret" .Release.Namespace $tlsSecret }}
+    {{- if $sec }}
+    certificate: |-
+      {{- index $sec.data "tls.crt" | b64dec | nindent 6 }}
+    key: |-
+      {{- index $sec.data "tls.key" | b64dec | nindent 6 }}
+    {{- end }}
+    {{- end }}
+  wildcardPolicy: None
+{{- if .Values.supersetWebsockets.enabled }}
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: "{{ template "superset.fullname" . }}-ws"
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: {{ template "superset.name" . }}
+    chart: {{ template "superset.chart" . }}
+    release: {{ .Release.Name }}
+    heritage: {{ .Release.Service }}
+  {{- with .Values.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  host: {{ $host | quote }}
+  path: {{ .Values.supersetWebsockets.ingress.path | quote }}
+  to:
+    kind: Service
+    name: "{{ template "superset.fullname" . }}-ws"
+    weight: 100
+  port:
+    targetPort: ws
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+    {{- if $tlsSecret }}
+    {{- $sec := lookup "v1" "Secret" .Release.Namespace $tlsSecret }}
+    {{- if $sec }}
+    certificate: |-
+      {{- index $sec.data "tls.crt" | b64dec | nindent 6 }}
+    key: |-
+      {{- index $sec.data "tls.key" | b64dec | nindent 6 }}
+    {{- end }}
+    {{- end }}
+  wildcardPolicy: None
+{{- end }}
+{{- end }}

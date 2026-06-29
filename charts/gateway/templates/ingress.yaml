@@ -1,5 +1,6 @@
 
-{{- if .Values.ingress.enabled -}}
+{{- /* On OpenShift with route.enabled, the chart emits a native Route instead of this Ingress. */ -}}
+{{- if and .Values.ingress.enabled (not (and .Values.route.enabled (.Capabilities.APIVersions.Has "route.openshift.io/v1"))) -}}
 {{- $fullName := .Values.serviceName -}}
 {{- $svcPort := -1 }}
 {{- if index .Values "config" "serverConfig" "http-server.http.enabled" }}

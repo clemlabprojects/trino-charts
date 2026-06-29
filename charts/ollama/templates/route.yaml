@@ -1,0 +1,48 @@
+{{- /*
+OpenShift Route — emitted only on OpenShift (route.openshift.io/v1 present) when
+ingress.enabled AND route.enabled (default true). On OpenShift this REPLACES the
+Ingress (the ingress template suppresses itself under the same condition) so the
+router does not also auto-create a duplicate Route from the Ingress. Ollama's backend
+is plain HTTP, so the Route uses edge termination (TLS terminates at the router). If a
+cert was provisioned into ingress.tls[].secretName it is embedded; otherwise the
+router's default ingress certificate is used.
+*/ -}}
+{{- if and .Values.ingress.enabled .Values.route.enabled (.Capabilities.APIVersions.Has "route.openshift.io/v1") }}
+{{- $h := first .Values.ingress.hosts }}
+{{- $host := $h.host }}
+{{- $path := (first $h.paths).path | default "/" }}
+{{- $tlsSecret := "" }}
+{{- if .Values.ingress.tls }}{{- $tlsSecret = (first .Values.ingress.tls).secretName }}{{- end }}
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: {{ include "ollama.fullname" . }}
+  labels:
+    {{- include "ollama.labels" . | nindent 4 }}
+  {{- with .Values.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  host: {{ $host | quote }}
+  path: {{ $path | quote }}
+  to:
+    kind: Service
+    name: {{ include "ollama.fullname" . }}
+    weight: 100
+  port:
+    targetPort: ollama
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+    {{- if $tlsSecret }}
+    {{- $sec := lookup "v1" "Secret" .Release.Namespace $tlsSecret }}
+    {{- if $sec }}
+    certificate: |-
+      {{- index $sec.data "tls.crt" | b64dec | nindent 6 }}
+    key: |-
+      {{- index $sec.data "tls.key" | b64dec | nindent 6 }}
+    {{- end }}
+    {{- end }}
+  wildcardPolicy: None
+{{- end }}
