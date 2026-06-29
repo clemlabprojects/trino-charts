@@ -142,6 +142,27 @@ The official opensearch-project chart names the service <clusterName>-<nodeGroup
 {{- end }}
 
 {{/*
+Resolve OpenSearch port and scheme. Like opensearchHost, these MUST switch to the
+externalSearch.* values when the bundled subchart is disabled — otherwise an external
+OpenSearch on a non-9200 port or HTTPS is silently probed/queried on the wrong
+port/scheme (the bundled defaults).
+*/}}
+{{- define "openmetadata.opensearchPort" -}}
+{{- if .Values.opensearch.enabled -}}
+{{- .Values.openmetadata.config.elasticsearch.port -}}
+{{- else -}}
+{{- .Values.externalSearch.port | default 9200 -}}
+{{- end -}}
+{{- end }}
+{{- define "openmetadata.opensearchScheme" -}}
+{{- if .Values.opensearch.enabled -}}
+{{- .Values.openmetadata.config.elasticsearch.scheme -}}
+{{- else -}}
+{{- .Values.externalSearch.scheme | default "http" -}}
+{{- end -}}
+{{- end }}
+
+{{/*
 Normalise imagePullSecrets: accepts both string entries and {name:...} objects,
 as KDPS injects them as plain strings while Kubernetes requires {name:...} objects.
 */}}
