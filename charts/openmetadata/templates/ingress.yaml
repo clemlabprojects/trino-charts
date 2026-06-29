@@ -1,4 +1,5 @@
-{{- if .Values.ingress.enabled -}}
+{{- /* On OpenShift with route.enabled the chart emits a native Route instead; this Ingress suppresses itself under the same condition. */ -}}
+{{- if and .Values.ingress.enabled (not (and .Values.route.enabled (.Capabilities.APIVersions.Has "route.openshift.io/v1"))) -}}
 {{- $authMode := "" }}
 {{- if .Values.global }}{{- if .Values.global.security }}{{- if .Values.global.security.auth }}
 {{- $authMode = .Values.global.security.auth.mode | default "" }}

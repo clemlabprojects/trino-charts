@@ -1,0 +1,54 @@
+{{- /* OpenShift Route — emitted only on OpenShift when ingress.enabled AND route.enabled. Replaces Ingress (ingress.yaml suppresses itself under the same condition). */ -}}
+{{- if and .Values.ingress.enabled .Values.route.enabled (.Capabilities.APIVersions.Has "route.openshift.io/v1") }}
+{{- $fullName := .Values.serviceName -}}
+{{- $svcPort := -1 }}
+{{- $termination := "" }}
+{{- if index .Values "config" "serverConfig" "http-server.http.enabled" }}
+  {{- $svcPort = index .Values "config" "serverConfig" "http-server.http.port" }}
+  {{- $termination = "edge" }}
+{{- else if index .Values "config" "serverConfig" "http-server.https.enabled" }}
+  {{- $svcPort = index .Values "config" "serverConfig" "http-server.https.port" }}
+  {{- $termination = "passthrough" }}
+{{- else }}
+  {{- fail "Error: Either https or http must be enabled in serverConfig!" }}
+{{- end }}
+{{- $h := first .Values.ingress.hosts }}
+{{- $host := $h.host }}
+{{- $path := (first $h.paths).path | default "/" }}
+{{- $tlsSecret := "" }}
+{{- if .Values.ingress.tls }}{{- $tlsSecret = (first .Values.ingress.tls).secretName }}{{- end }}
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: {{ $fullName }}
+  labels:
+    {{- include "trino-gateway.labels" . | nindent 4 }}
+  {{- with .Values.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  host: {{ $host | quote }}
+  path: {{ $path | quote }}
+  to:
+    kind: Service
+    name: {{ $fullName }}
+    weight: 100
+  port:
+    targetPort: {{ $svcPort }}
+  tls:
+    termination: {{ $termination }}
+    insecureEdgeTerminationPolicy: Redirect
+    {{- if eq $termination "edge" }}
+    {{- if $tlsSecret }}
+    {{- $sec := lookup "v1" "Secret" .Release.Namespace $tlsSecret }}
+    {{- if $sec }}
+    certificate: |-
+      {{- index $sec.data "tls.crt" | b64dec | nindent 6 }}
+    key: |-
+      {{- index $sec.data "tls.key" | b64dec | nindent 6 }}
+    {{- end }}
+    {{- end }}
+    {{- end }}
+  wildcardPolicy: None
+{{- end }}

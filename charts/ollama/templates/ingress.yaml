@@ -1,4 +1,6 @@
-{{- if .Values.ingress.enabled -}}
+{{- /* On OpenShift with route.enabled (the default) a native Route is emitted instead
+       (see route.yaml); suppress the Ingress so the two don't double-expose the app. */ -}}
+{{- if and .Values.ingress.enabled (not (and .Values.route.enabled (.Capabilities.APIVersions.Has "route.openshift.io/v1"))) -}}
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
