@@ -18,8 +18,8 @@ data:
   # Use the OpenSearch native client to avoid Elasticsearch 9.x API header incompatibilities
   SEARCH_TYPE: "opensearch"
   ELASTICSEARCH_HOST: {{ include "openmetadata.opensearchHost" . | quote }}
-  ELASTICSEARCH_PORT: {{ .Values.openmetadata.config.elasticsearch.port | quote }}
-  ELASTICSEARCH_PROTOCOL: {{ .Values.openmetadata.config.elasticsearch.scheme | quote }}
+  ELASTICSEARCH_PORT: {{ include "openmetadata.opensearchPort" . | quote }}
+  ELASTICSEARCH_PROTOCOL: {{ include "openmetadata.opensearchScheme" . | quote }}
   ELASTICSEARCH_CONNECTION_TIMEOUT_SECS: {{ .Values.openmetadata.config.elasticsearch.connectionTimeoutSecs | quote }}
   ELASTICSEARCH_SOCKET_TIMEOUT_SECS: {{ .Values.openmetadata.config.elasticsearch.socketTimeoutSecs | quote }}
   ELASTICSEARCH_KEEP_ALIVE_TIMEOUT_SECS: {{ .Values.openmetadata.config.elasticsearch.keepAliveTimeoutSecs | quote }}
