@@ -383,6 +383,17 @@ server:
     #             value: 100
     #             periodSeconds: 15
     # ```
+    triggerAuthentication:
+      # server.keda.triggerAuthentication -- Create a KEDA TriggerAuthentication (bearer token) for a
+      # scaler that must authenticate — e.g. an OpenShift/Thanos Prometheus trigger. Reference it from a
+      # trigger via `authenticationRef.name` and `metadata.authModes: bearer`.
+      enabled: false
+      # -- Name of the TriggerAuthentication (defaults to "<fullname>-keda-auth").
+      name: ""
+      # -- Secret holding the bearer token (must exist in the release namespace).
+      secretName: ""
+      # -- Key within the Secret that holds the token.
+      secretKey: token
     triggers: []
     # server.keda.triggers -- List of triggers to activate scaling of the target resource
     # @raw
