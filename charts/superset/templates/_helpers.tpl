@@ -69,6 +69,12 @@ Expand the name of the chart.
   value: {{ $auth.ad.userSearchFilter | quote }}
 - name: SECURITY_AD_DOMAIN
   value: {{ $auth.ad.domain | quote }}
+- name: SECURITY_AD_UID_FIELD
+  value: {{ $auth.ad.uidField | default "sAMAccountName" | quote }}
+{{- if $auth.ad.tlsCaCertFile }}
+- name: SECURITY_AD_TLS_CACERTFILE
+  value: {{ $auth.ad.tlsCaCertFile | quote }}
+{{- end }}
 {{- end }}
 {{- if eq $auth.mode "oidc" }}
 - name: SECURITY_OIDC_ISSUER
@@ -330,6 +336,7 @@ if AUTH_TYPE == "OIDC":
     ]
 elif AUTH_TYPE in ("LDAP", "AD"):
     from flask_appbuilder.security.manager import AUTH_LDAP
+    _is_ad = (AUTH_TYPE == "AD")
     AUTH_TYPE = AUTH_LDAP
     AUTH_LDAP_SERVER = env('SECURITY_LDAP_URL') or env('SECURITY_AD_URL')
     AUTH_LDAP_USE_TLS = env('SECURITY_LDAP_STARTTLS', 'false').lower() == 'true'
@@ -337,7 +344,33 @@ elif AUTH_TYPE in ("LDAP", "AD"):
     AUTH_LDAP_BIND_PASSWORD = env('SECURITY_LDAP_BIND_PASSWORD') or env('SECURITY_AD_BIND_PASSWORD')
     AUTH_LDAP_SEARCH = env('SECURITY_LDAP_BASE_DN') or env('SECURITY_AD_BASE_DN')
     AUTH_LDAP_SEARCH_FILTER = env('SECURITY_LDAP_USER_SEARCH_FILTER') or env('SECURITY_AD_USER_SEARCH_FILTER')
-    AUTH_LDAP_UID_FIELD = 'uid'
+    # Username attribute: Active Directory uses sAMAccountName (or the UPN); plain LDAP / FreeIPA use uid.
+    # Hardcoding 'uid' broke AD login even once the connection succeeded (it worked on FreeIPA only).
+    if _is_ad:
+        AUTH_LDAP_UID_FIELD = env('SECURITY_AD_UID_FIELD', 'sAMAccountName')
+        # AD commonly authenticates as user@domain — append the domain when the profile provides one.
+        _ad_domain = env('SECURITY_AD_DOMAIN', '')
+        if _ad_domain:
+            AUTH_LDAP_APPEND_DOMAIN = _ad_domain
+    else:
+        AUTH_LDAP_UID_FIELD = env('SECURITY_LDAP_UID_FIELD', 'uid')
+    # TLS trust for ldaps:// — python-ldap uses OpenLDAP's OWN trust store (OPT_X_TLS_CACERTFILE),
+    # NOT the REQUESTS_CA_BUNDLE / SSL_CERT_FILE that the chart's truststore mount exposes for
+    # requests/OAuth. So when the AD LDAPS endpoint is signed by an internal CA, the handshake fails
+    # as SERVER_DOWN "Can't contact LDAP server" until LDAP is pointed at that SAME mounted CA.
+    # We reuse the truststore the chart already mounts (SSL_CERT_FILE / TRUSTSTORE_PATH) and keep
+    # certificate verification ON (REQUIRE_CERT = DEMAND). No verification is ever disabled here; if
+    # no CA is available the connection uses the system trust store and fails loudly rather than
+    # silently accepting an untrusted certificate.
+    if str(AUTH_LDAP_SERVER or '').lower().startswith('ldaps://'):
+        _ldap_cacert = (env('SECURITY_LDAP_TLS_CACERTFILE') or env('SECURITY_AD_TLS_CACERTFILE')
+                        or env('SSL_CERT_FILE') or env('TRUSTSTORE_PATH'))
+        if _ldap_cacert:
+            import ldap as _ldap
+            AUTH_LDAP_TLS_CACERTFILE = _ldap_cacert
+            _ldap.set_option(_ldap.OPT_X_TLS_CACERTFILE, _ldap_cacert)
+            _ldap.set_option(_ldap.OPT_X_TLS_REQUIRE_CERT, _ldap.OPT_X_TLS_DEMAND)
+            _ldap.set_option(_ldap.OPT_X_TLS_NEWCTX, 0)
 
     # Group settings
     AUTH_ROLES_SYNC_AT_LOGIN = True
