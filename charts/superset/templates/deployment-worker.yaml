@@ -107,6 +107,7 @@ spec:
             {{ include "superset.security.env" . | nindent 12 }}
             {{ include "superset.admin.env" . | nindent 12 }}
             {{ include "superset.truststore.env" . | nindent 12 }}
+            {{- include "superset.kerberos.env" . | nindent 12 }}
           envFrom:
             - secretRef:
                 name: {{ tpl .Values.envFromSecret . | quote }}
@@ -128,6 +129,7 @@ spec:
             {{- end }}
             {{ include "superset.truststore.volumeMount" . | nindent 12 }}
             {{ include "superset.vault.volumeMount" . | nindent 12 }}
+            {{ include "superset.kerberos.volumeMounts" . | nindent 12 }}
           {{- if .Values.supersetWorker.startupProbe }}
           startupProbe: {{- .Values.supersetWorker.startupProbe | toYaml | nindent 12 }}
           {{- end }}
@@ -146,6 +148,7 @@ spec:
         {{- if .Values.supersetWorker.extraContainers }}
           {{- toYaml .Values.supersetWorker.extraContainers | nindent 8 }}
         {{- end }}
+        {{- include "superset.kerberos.sidecar" . | nindent 8 }}
       {{- with .Values.nodeSelector }}
       nodeSelector: {{- toYaml . | nindent 8 }}
       {{- end }}
@@ -190,3 +193,4 @@ spec:
         {{- end }}
         {{ include "superset.truststore.volume" . | nindent 8 }}
         {{ include "superset.vault.volume" . | nindent 8 }}
+        {{ include "superset.kerberos.volumes" . | nindent 8 }}
