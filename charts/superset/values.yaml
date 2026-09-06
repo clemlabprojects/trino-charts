@@ -931,10 +931,16 @@ init:
     echo "Loading examples..."
     superset load_examples
     {{- end }}
-    if [ -f "{{ .Values.extraConfigMountPath }}/import_datasources.yaml" ]; then
-      echo "Importing database connections.... "
-      superset import_datasources -p {{ .Values.extraConfigMountPath }}/import_datasources.yaml
-    fi
+    # Import every import_datasources*.yaml the KDPS view mounts. Each service writes its
+    # own file (import_datasources.yaml for Platform Hive, import_datasources_trino.yaml for
+    # Platform Trino, ...) so independently-toggled connections never overwrite one another.
+    # The bare import_datasources.yaml name is still matched, so this is backward-compatible.
+    for datasource_file in {{ .Values.extraConfigMountPath }}/import_datasources*.yaml; do
+      if [ -f "$datasource_file" ]; then
+        echo "Importing database connections from $datasource_file .... "
+        superset import_datasources -p "$datasource_file"
+      fi
+    done
   # -- Launch additional containers into init job pod
   extraContainers: []
   ## Annotations to be added to init job pods
