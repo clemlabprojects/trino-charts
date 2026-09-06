@@ -98,6 +98,14 @@ global:
         redirectUri: ""
         userClaim: "preferred_username"
         groupsClaim: "groups"
+        # JWT authenticator, enabled ALONGSIDE OAUTH2 in oidc mode so programmatic clients
+        # (e.g. Superset over the trino python client) can present a bearer service JWT and then
+        # impersonate the end user. The interactive Web UI keeps using the OAUTH2 redirect flow.
+        jwt:
+          enabled: true                 # set false to disable the JWT authenticator in oidc mode
+          keyFile: ""                   # default: "<issuerUrl>/protocol/openid-connect/certs" (Keycloak JWKS)
+          principalField: ""            # default: userClaim (preferred_username) — the claim Trino maps to the auth principal
+          requiredAudience: ""          # optional: reject tokens whose aud does not match
         skipTlsVerify: false
         caSecret: ""
       ldap:

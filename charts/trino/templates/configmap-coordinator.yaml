@@ -13,6 +13,13 @@ metadata:
 {{- $adCfg := $auth.ad | default dict }}
 {{- $oidcCfg := $auth.oidc | default dict }}
 {{- $ldapModeEnabled := or (eq $authMode "ldap") (eq $authMode "ad") }}
+{{/* JWT authenticator (alongside OAUTH2) so programmatic clients — e.g. Superset over the trino
+     python client — can authenticate to an OIDC-mode Trino with a bearer service JWT and then
+     impersonate the end user. Defaults ON in oidc mode; key-file defaults to the Keycloak JWKS. */}}
+{{- $jwtCfg := $oidcCfg.jwt | default dict }}
+{{- $jwtEnabled := and (eq $authMode "oidc") (ne ($jwtCfg.enabled | toString) "false") }}
+{{- $jwtKeyFile := default (printf "%s/protocol/openid-connect/certs" (default "" $oidcCfg.issuerUrl)) $jwtCfg.keyFile }}
+{{- $jwtPrincipalField := default (default "preferred_username" $oidcCfg.userClaim) $jwtCfg.principalField }}
 data:
   node.properties: |
     node.environment={{ tpl .Values.server.node.environment . }}
@@ -81,7 +88,7 @@ data:
     http-server.authentication.type=PASSWORD
     {{- else if eq $authMode "oidc" }}
     web-ui.authentication.type=OAUTH2
-    http-server.authentication.type=OAUTH2
+    http-server.authentication.type=OAUTH2{{ if $jwtEnabled }},JWT{{ end }}
     http-server.authentication.oauth2.issuer={{ $oidcCfg.issuerUrl }}
     {{- if $oidcCfg.clientId }}
     http-server.authentication.oauth2.client-id={{ $oidcCfg.clientId }}
@@ -95,6 +102,13 @@ data:
     http-server.authentication.oauth2.scopes={{ default "openid email profile" $oidcCfg.scopes }}
     {{- if $oidcCfg.userClaim }}
     http-server.authentication.oauth2.principal-field={{ $oidcCfg.userClaim }}
+    {{- end }}
+    {{- if $jwtEnabled }}
+    http-server.authentication.jwt.key-file={{ $jwtKeyFile }}
+    http-server.authentication.jwt.principal-field={{ $jwtPrincipalField }}
+    {{- if $jwtCfg.requiredAudience }}
+    http-server.authentication.jwt.required-audience={{ $jwtCfg.requiredAudience }}
+    {{- end }}
     {{- end }}
     {{- end }}
     {{- if or .Values.server.config.authenticationType $ldapModeEnabled (eq $authMode "oidc") }}
