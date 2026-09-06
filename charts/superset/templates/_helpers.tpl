@@ -592,6 +592,49 @@ RESULTS_BACKEND = RedisCache(
 {{ $files.Get $value }}
 {{- end }}
 {{- end }}
+{{- if (.Values.trinoJwt | default dict).enabled }}
+# --- KDPS: Trino JWT auth that reads a sidecar-refreshed token file on every request ---
+# Lets Superset authenticate to an OIDC-mode Trino with a bearer service JWT (kept current by
+# the trino-jwt sidecar) and then impersonate the logged-in user. Registered as the trino auth
+# method 'kdps_file_jwt' — the KDPS view writes encrypted_extra {auth_method: kdps_file_jwt}.
+import logging as _kdps_logging
+try:
+    from trino.auth import Authentication as _KdpsTrinoAuthBase
+    import requests as _kdps_requests
+
+    class KdpsFileJWTAuthentication(_KdpsTrinoAuthBase):
+        def __init__(self, token_file={{ default "/var/run/trino-jwt/token" .Values.trinoJwt.tokenFile | quote }}):
+            self._token_file = token_file
+
+        def set_http_session(self, http_session):
+            token_file = self._token_file
+
+            class _KdpsBearer(_kdps_requests.auth.AuthBase):
+                def __call__(self, request):
+                    try:
+                        with open(token_file) as fh:
+                            request.headers["Authorization"] = "Bearer " + fh.read().strip()
+                    except OSError as exc:
+                        _kdps_logging.getLogger(__name__).warning(
+                            "KdpsFileJWT: cannot read Trino token file %s: %s", token_file, exc)
+                    return request
+
+            http_session.auth = _KdpsBearer()
+            return http_session
+
+        def get_exceptions(self):
+            return ()
+
+    ALLOWED_EXTRA_AUTHENTICATIONS = {
+        **(globals().get("ALLOWED_EXTRA_AUTHENTICATIONS") or {}),
+        "trino": {
+            **((globals().get("ALLOWED_EXTRA_AUTHENTICATIONS") or {}).get("trino") or {}),
+            "kdps_file_jwt": KdpsFileJWTAuthentication,
+        },
+    }
+except Exception as _kdps_exc:  # pragma: no cover
+    _kdps_logging.getLogger(__name__).warning("KDPS: could not register Trino file-JWT auth: %s", _kdps_exc)
+{{- end }}
 # --- Hive fix: stop Superset from running Presto-style "SHOW CATALOGS" on Hive ---
 def FLASK_APP_MUTATOR(app):
     from superset.db_engine_specs.hive import HiveEngineSpec
@@ -816,6 +859,85 @@ release: {{ .Release.Name }}
     - name: krb5-cache
       mountPath: {{ $kinit.cacheDir }}
     {{- end }}
+{{- end }}
+{{- end }}
+
+{{/* ---- Trino JWT service-token sidecar (Superset -> OIDC Trino) ---- */}}
+{{- define "superset.trinoJwt.volume" -}}
+{{- if (.Values.trinoJwt | default dict).enabled }}
+- name: trino-jwt
+  emptyDir:
+    medium: Memory
+{{- end }}
+{{- end }}
+
+{{- define "superset.trinoJwt.volumeMount" -}}
+{{- $jwt := .Values.trinoJwt | default dict }}
+{{- if $jwt.enabled }}
+- name: trino-jwt
+  mountPath: {{ dir (default "/var/run/trino-jwt/token" $jwt.tokenFile) | quote }}
+  readOnly: true
+{{- end }}
+{{- end }}
+
+{{- define "superset.trinoJwt.sidecar" -}}
+{{- $jwt := .Values.trinoJwt | default dict }}
+{{- if $jwt.enabled }}
+{{- $img := $jwt.image | default dict }}
+{{- $oidc := (((.Values.global | default dict).security | default dict).auth | default dict).oidc | default dict }}
+{{- $oidcSecret := $oidc.secretRef | default dict }}
+{{- $sec := $jwt.secretRef | default dict }}
+{{/* Reuse Superset's own OIDC client Secret when trinoJwt.secretRef is unset — the KDPS view
+     then only has to flip trinoJwt.enabled=true. The client must have service accounts enabled. */}}
+{{- $secName := default $oidcSecret.name $sec.name }}
+{{- $cidKey := default (default "client_id" $oidcSecret.clientIdKey) $sec.clientIdKey }}
+{{- $csecKey := default (default "client_secret" $oidcSecret.clientSecretKey) $sec.clientSecretKey }}
+{{- $tokenFile := default "/var/run/trino-jwt/token" $jwt.tokenFile }}
+- name: trino-jwt-refresh
+  {{- if or $img.repository $img.tag }}
+  image: {{ printf "%s:%s" (default .Values.image.repository $img.repository) (default .Values.image.tag $img.tag) | quote }}
+  {{- else }}
+  image: {{ include "superset.image" (dict "root" . "image" .Values.image) | quote }}
+  {{- end }}
+  imagePullPolicy: {{ default .Values.image.pullPolicy $img.pullPolicy }}
+  env:
+    - name: KDPS_TRINO_JWT_ISSUER
+      value: {{ default (default "" $oidc.issuerUrl) $jwt.issuerUrl | quote }}
+    - name: KDPS_TRINO_JWT_TOKEN_FILE
+      value: {{ $tokenFile | quote }}
+    - name: KDPS_TRINO_JWT_REFRESH
+      value: {{ default 180 $jwt.refreshSeconds | quote }}
+    {{- if $secName }}
+    - name: KDPS_TRINO_JWT_CLIENT_ID
+      valueFrom:
+        secretKeyRef:
+          name: {{ $secName }}
+          key: {{ $cidKey }}
+    - name: KDPS_TRINO_JWT_CLIENT_SECRET
+      valueFrom:
+        secretKeyRef:
+          name: {{ $secName }}
+          key: {{ $csecKey }}
+    {{- else }}
+    - name: KDPS_TRINO_JWT_CLIENT_ID
+      value: {{ default "" $jwt.clientId | quote }}
+    - name: KDPS_TRINO_JWT_CLIENT_SECRET
+      value: {{ default "" $jwt.clientSecret | quote }}
+    {{- end }}
+    {{ include "superset.truststore.env" . | nindent 4 }}
+  command:
+    - /bin/sh
+    - -c
+    - >
+      mkdir -p "$(dirname "$KDPS_TRINO_JWT_TOKEN_FILE")";
+      while true; do
+      python3 -c 'import os,json,ssl,urllib.request,urllib.parse;iss=os.environ["KDPS_TRINO_JWT_ISSUER"].rstrip("/");d=urllib.parse.urlencode({"grant_type":"client_credentials","client_id":os.environ["KDPS_TRINO_JWT_CLIENT_ID"],"client_secret":os.environ["KDPS_TRINO_JWT_CLIENT_SECRET"]}).encode();ca=os.environ.get("REQUESTS_CA_BUNDLE") or os.environ.get("SSL_CERT_FILE");ctx=ssl.create_default_context(cafile=ca) if ca else ssl.create_default_context();r=urllib.request.urlopen(urllib.request.Request(iss+"/protocol/openid-connect/token",data=d),context=ctx,timeout=15);t=json.load(r)["access_token"];f=os.environ["KDPS_TRINO_JWT_TOKEN_FILE"];open(f+".tmp","w").write(t);os.replace(f+".tmp",f);print("trino-jwt: token refreshed",flush=True)' || echo "trino-jwt: refresh failed (will retry)";
+      sleep "$KDPS_TRINO_JWT_REFRESH";
+      done
+  volumeMounts:
+    - name: trino-jwt
+      mountPath: {{ dir $tokenFile | quote }}
+    {{ include "superset.truststore.volumeMount" . | nindent 4 }}
 {{- end }}
 {{- end }}
 

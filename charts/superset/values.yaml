@@ -342,6 +342,32 @@ configMountPath: "/app/pythonpath"
 
 extraConfigMountPath: "/app/configs"
 
+# Trino JWT service-token sidecar. When the KDPS view wires a Superset -> Trino database in
+# OIDC mode, Superset must present a bearer JWT to Trino (which then impersonates the logged-in
+# user). This sidecar mints a short-lived Keycloak client-credentials token into a shared file,
+# refreshed before expiry; a small custom auth registered in superset_config.py
+# (ALLOWED_EXTRA_AUTHENTICATIONS["trino"]["kdps_file_jwt"]) reads that file per connection. No
+# image change is needed — the sidecar reuses the Superset image (it has python3). The Superset
+# Keycloak client must have "service accounts enabled" for the client_credentials grant to work.
+trinoJwt:
+  enabled: false
+  # Where the sidecar writes, and the custom auth reads, the current access token.
+  tokenFile: /var/run/trino-jwt/token
+  # Keycloak realm issuer, e.g. https://keycloak/realms/clemlab. Token endpoint is
+  # <issuerUrl>/protocol/openid-connect/token. Defaults from the OIDC security profile when unset.
+  issuerUrl: ""
+  # Client credentials for the client_credentials grant. Prefer secretRef over inline literals.
+  clientId: ""
+  clientSecret: ""
+  secretRef:
+    name: ""                    # K8s Secret holding the client id/secret (e.g. the Superset OIDC client secret)
+    clientIdKey: client_id
+    clientSecretKey: client_secret
+  # How often (seconds) the sidecar refreshes the token. Keep below the Keycloak access-token TTL.
+  refreshSeconds: 180
+  # Optional override of the sidecar image (defaults to the Superset image).
+  image: {}
+
 image:
   repository: superset
   tag: "4.1.4.1.3.2.0-2"

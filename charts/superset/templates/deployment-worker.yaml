@@ -130,6 +130,7 @@ spec:
             {{ include "superset.truststore.volumeMount" . | nindent 12 }}
             {{ include "superset.vault.volumeMount" . | nindent 12 }}
             {{ include "superset.kerberos.volumeMounts" . | nindent 12 }}
+            {{- include "superset.trinoJwt.volumeMount" . | nindent 12 }}
           {{- if .Values.supersetWorker.startupProbe }}
           startupProbe: {{- .Values.supersetWorker.startupProbe | toYaml | nindent 12 }}
           {{- end }}
@@ -149,6 +150,7 @@ spec:
           {{- toYaml .Values.supersetWorker.extraContainers | nindent 8 }}
         {{- end }}
         {{- include "superset.kerberos.sidecar" . | nindent 8 }}
+        {{- include "superset.trinoJwt.sidecar" . | nindent 8 }}
       {{- with .Values.nodeSelector }}
       nodeSelector: {{- toYaml . | nindent 8 }}
       {{- end }}
@@ -194,3 +196,4 @@ spec:
         {{ include "superset.truststore.volume" . | nindent 8 }}
         {{ include "superset.vault.volume" . | nindent 8 }}
         {{ include "superset.kerberos.volumes" . | nindent 8 }}
+        {{ include "superset.trinoJwt.volume" . | nindent 8 }}
