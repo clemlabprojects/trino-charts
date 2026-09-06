@@ -51,6 +51,10 @@ Expand the name of the chart.
   value: {{ $auth.ldap.groupSearchBase | quote }}
 - name: SECURITY_LDAP_GROUP_SEARCH_FILTER
   value: {{ $auth.ldap.groupSearchFilter | quote }}
+# RDN component that names a group inside a memberOf DN — 'cn' for AD and most directories;
+# override for slapd/others where the group name lives under a different RDN (e.g. 'ou').
+- name: SECURITY_LDAP_GROUP_RDN_ATTR
+  value: {{ $auth.ldap.groupRdnAttribute | default "cn" | quote }}
 - name: SECURITY_LDAP_REFERRAL
   value: {{ $auth.ldap.referral | quote }}
 - name: SECURITY_LDAP_STARTTLS
@@ -383,6 +387,57 @@ elif AUTH_TYPE in ("LDAP", "AD"):
     AUTH_USER_REGISTRATION = True
     # For initial tests, make first LDAP user admin; change to Gamma to have no rights
     AUTH_USER_REGISTRATION_ROLE = "Gamma"
+
+    # --- Admin role from AD/LDAP groups + users, robust to full memberOf DNs ---
+    # FAB matches the FULL memberOf DN string exactly against AUTH_ROLES_MAPPING, so an operator had to
+    # paste "CN=Group,OU=..,OU=.." verbatim (case included) for admin-groups to take effect. Instead,
+    # extract the group NAME — the RDN named by SECURITY_LDAP_GROUP_RDN_ATTR (default 'cn', correct for
+    # AD) — from each memberOf DN and match the admin-groups by short name, case-insensitively. Also grant
+    # Admin when the login username is in the admin-users list (FAB's LDAP path never maps the bare
+    # username on its own). This keeps AUTH_ROLES_MAPPING working (full-DN entries still match via
+    # super()) and only ADDS the short-name / username grants; any error degrades to a normal login.
+    from superset.security import SupersetSecurityManager
+    _GROUP_RDN_ATTR = (env('SECURITY_LDAP_GROUP_RDN_ATTR', 'cn') or 'cn').strip().lower()
+    _ADMIN_ROLE_NAME = env('SECURITY_ADMIN_ROLE', 'Admin')
+    _ADMIN_GROUPS_CI = {g.strip().lower() for g in env('SECURITY_ADMIN_GROUPS', '').split(',') if g.strip()}
+    _ADMIN_USERS_CI = {u.strip().lower() for u in env('SECURITY_ADMIN_USERS', '').split(',') if u.strip()}
+
+    def _rdn_value(dn, attr):
+        # "CN=GROUP_1,OU=x,OU=y" with attr "cn" -> "GROUP_1"
+        for part in str(dn).split(','):
+            k, sep, v = part.partition('=')
+            if sep and k.strip().lower() == attr:
+                return v.strip()
+        return None
+
+    class KdpsLdapSecurityManager(SupersetSecurityManager):
+        def _ldap_calculate_user_roles(self, user_attributes):
+            try:
+                roles = list(super()._ldap_calculate_user_roles(user_attributes))
+            except Exception:
+                roles = []
+            try:
+                make_admin = False
+                for dn in (self.ldap_extract_list(user_attributes, self.auth_ldap_group_field) or []):
+                    name = _rdn_value(dn, _GROUP_RDN_ATTR)
+                    if name and name.lower() in _ADMIN_GROUPS_CI:
+                        make_admin = True
+                        break
+                if not make_admin and _ADMIN_USERS_CI:
+                    unames = self.ldap_extract_list(user_attributes, self.auth_ldap_uid_field)
+                    if any((u or '').lower() in _ADMIN_USERS_CI for u in (unames or [])):
+                        make_admin = True
+                if make_admin:
+                    admin_role = self.find_role(_ADMIN_ROLE_NAME)
+                    if admin_role is not None and admin_role not in roles:
+                        roles.append(admin_role)
+                        logging.getLogger("superset.security").info(
+                            "KDPS: granted %s from AD/LDAP admin group/user match", _ADMIN_ROLE_NAME)
+            except Exception as _e:
+                logging.getLogger("superset.security").warning("KDPS LDAP admin mapping failed: %s", _e)
+            return roles
+
+    CUSTOM_SECURITY_MANAGER = KdpsLdapSecurityManager
 else:
     from flask_appbuilder.security.manager import AUTH_DB
     AUTH_TYPE = AUTH_DB
