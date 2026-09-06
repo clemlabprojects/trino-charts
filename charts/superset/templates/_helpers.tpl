@@ -224,10 +224,30 @@ if AUTH_TYPE == "OIDC":
     from flask_appbuilder.security.manager import AUTH_OAUTH
     from flask_appbuilder.security.views import AuthOAuthView
     from flask_appbuilder import expose
-    from flask import redirect, request, session
-    from flask_login import logout_user
+    from flask import redirect, request, session, flash, g, render_template_string
+    from flask_login import logout_user, login_user
     from superset.security import SupersetSecurityManager
     AUTH_TYPE = AUTH_OAUTH
+    # Break-glass local login for OIDC. OAuth has no password form, so rather than touch the OAuth
+    # login page (risking normal SSO), we expose a separate /login/local form that authenticates a
+    # local DB account — usable when the IdP is unreachable. Enabled by default; disable with
+    # SECURITY_LOCAL_LOGIN_FALLBACK=false. Only accounts with a real local password can pass.
+    _OIDC_LOCAL_FALLBACK = env('SECURITY_LOCAL_LOGIN_FALLBACK', 'true').strip().lower() not in ('false', '0', 'no')
+    _LOCAL_LOGIN_HTML = """<!doctype html><html><head><meta charset="utf-8"><title>Local sign in</title>
+<meta name="viewport" content="width=device-width, initial-scale=1"><style>
+body{font-family:system-ui,Arial,sans-serif;background:#f5f7fa;margin:0}
+.box{max-width:340px;margin:9vh auto;background:#fff;padding:28px;border-radius:10px;box-shadow:0 2px 14px rgba(0,0,0,.08)}
+h2{margin:0 0 6px;font-size:20px}p.m{color:#888;font-size:12px;margin:0 0 16px}
+input{width:100%;box-sizing:border-box;padding:9px;margin:6px 0;border:1px solid #ccc;border-radius:6px}
+button{width:100%;padding:10px;margin-top:8px;border:0;border-radius:6px;background:#00b88f;color:#fff;font-size:14px;cursor:pointer}
+a{display:block;text-align:center;margin-top:14px;color:#008e6e;font-size:12px}</style></head>
+<body><div class="box"><h2>Local sign in</h2><p class="m">Break-glass — use when the identity provider is unavailable.</p>
+<form method="post" action="">
+<input type="hidden" name="csrf_token" value="__CSRF__"/>
+<input name="username" placeholder="Local username" autocomplete="username" autofocus/>
+<input type="password" name="password" placeholder="Password" autocomplete="current-password"/>
+<button type="submit">Sign in</button></form>
+<a href="__LOGIN_URL__">Back to SSO sign in</a></div></body></html>"""
     # Auto-create users seen via OIDC. Without this, FAB returns a generic
     # "Invalid login" right after a successful Keycloak callback because the
     # user does not yet exist locally.
@@ -256,6 +276,37 @@ if AUTH_TYPE == "OIDC":
                 post_uri = request.host_url.rstrip("/") + "/login/"
                 return redirect(f"{end_session}?id_token_hint={id_token}&post_logout_redirect_uri={post_uri}")
             return redirect(self.appbuilder.get_url_for_login)
+
+        @expose("/login/local", methods=["GET", "POST"])
+        def login_local(self):
+            # Break-glass local DB login, separate from the OAuth page so normal SSO is never touched.
+            if not _OIDC_LOCAL_FALLBACK:
+                return redirect(self.appbuilder.get_url_for_login)
+            if g.user is not None and getattr(g.user, "is_authenticated", False):
+                return redirect(self.appbuilder.get_url_for_index)
+            if request.method == "POST":
+                username = request.form.get("username")
+                password = request.form.get("password") or ""
+                if username:
+                    try:
+                        user = self.appbuilder.sm.auth_user_db(username, password)
+                    except Exception as _e:
+                        user = None
+                        logging.getLogger("superset.security").warning("KDPS local-login (OIDC) failed: %s", _e)
+                    if user:
+                        login_user(user, remember=False)
+                        logging.getLogger("superset.security").warning(
+                            "KDPS: local DB break-glass login for '%s' (OIDC/IdP unavailable)", username)
+                        return redirect(self.appbuilder.get_url_for_index)
+                    flash("Invalid local credentials", "warning")
+            try:
+                from flask_wtf.csrf import generate_csrf
+                token = generate_csrf()
+            except Exception:
+                token = ""
+            return (_LOCAL_LOGIN_HTML
+                    .replace("__CSRF__", token)
+                    .replace("__LOGIN_URL__", self.appbuilder.get_url_for_login))
 
     class CustomSsoSecurityManager(SupersetSecurityManager):
         authoauthview = CustomAuthOAuthView
@@ -410,7 +461,26 @@ elif AUTH_TYPE in ("LDAP", "AD"):
                 return v.strip()
         return None
 
+    # Break-glass local login: when the directory is unreachable, allow a local DB account (the
+    # bootstrap admin) to sign in through the same username/password form. Enabled by default; set
+    # SECURITY_LOCAL_LOGIN_FALLBACK=false to disable. Only accounts that carry a real local password
+    # pass — LDAP auto-created users have no usable DB password — so this is a genuine break-glass,
+    # not a bypass for every account.
+    _LOCAL_FALLBACK = env('SECURITY_LOCAL_LOGIN_FALLBACK', 'true').strip().lower() not in ('false', '0', 'no')
+
     class KdpsLdapSecurityManager(SupersetSecurityManager):
+        def auth_user_ldap(self, username, password):
+            user = super().auth_user_ldap(username, password)
+            if user is None and _LOCAL_FALLBACK:
+                try:
+                    user = self.auth_user_db(username, password)
+                    if user is not None:
+                        logging.getLogger("superset.security").warning(
+                            "KDPS: local DB break-glass login for '%s' (directory rejected/unreachable)", username)
+                except Exception as _e:
+                    logging.getLogger("superset.security").warning("KDPS local-login fallback failed: %s", _e)
+            return user
+
         def _ldap_calculate_user_roles(self, user_attributes):
             try:
                 roles = list(super()._ldap_calculate_user_roles(user_attributes))
