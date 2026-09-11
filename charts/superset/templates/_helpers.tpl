@@ -132,6 +132,14 @@ Expand the name of the chart.
 - name: SECURITY_ADMIN_GROUPS
   value: {{ $admGroups | quote }}
 {{- end }}
+{{- if .Values.global.security.dynamicRoleFromGroup }}
+- name: SECURITY_DYNAMIC_ROLE_FROM_GROUP
+  value: "true"
+{{- end }}
+{{- with .Values.global.security.dynamicRolePattern }}
+- name: SECURITY_DYNAMIC_ROLE_PATTERN
+  value: {{ . | quote }}
+{{- end }}
 {{- end -}}
 
 {{/*
@@ -182,6 +190,64 @@ LOG_LEVEL="DEBUG"
 
 def env(key, default=None):
     return os.getenv(key, default)
+
+import re
+
+# --- KDPS dynamic role mapping ---------------------------------------------------------------
+# Grant, at LOGIN time, any Superset role whose NAME matches one of the user's IdP groups (an
+# LDAP memberOf CN, or an OIDC groups-claim value). Roles are looked up LIVE from the DB
+# (find_role / get_all_roles), so a role created in the Superset UI is picked up on the user's
+# NEXT login without restarting Superset. Opt-in via SECURITY_DYNAMIC_ROLE_FROM_GROUP, and
+# optionally guarded by SECURITY_DYNAMIC_ROLE_PATTERN (a regex the role name must match) so an
+# arbitrary IdP group cannot coincidentally match a sensitive role (e.g. Admin, sql_lab). The
+# result is UNIONED with the static AUTH_ROLES_MAPPING (admin grants) — it never replaces it.
+_DYNAMIC_ROLE_FROM_GROUP = env('SECURITY_DYNAMIC_ROLE_FROM_GROUP', 'false').strip().lower() in ('true', '1', 'yes')
+_KDPS_GROUP_RDN_ATTR = (env('SECURITY_LDAP_GROUP_RDN_ATTR', 'cn') or 'cn').strip().lower()
+try:
+    _DYNAMIC_ROLE_RE = re.compile(env('SECURITY_DYNAMIC_ROLE_PATTERN', '')) if (env('SECURITY_DYNAMIC_ROLE_PATTERN', '') or '').strip() else None
+except re.error as _e:
+    logging.getLogger("superset.security").warning("KDPS: invalid SECURITY_DYNAMIC_ROLE_PATTERN, ignoring: %s", _e)
+    _DYNAMIC_ROLE_RE = None
+
+def _kdps_rdn_value(dn, attr):
+    # "CN=MY_GROUP,OU=x,OU=y" with attr "cn" -> "MY_GROUP"; a bare name (no '=') returns None.
+    for part in str(dn).split(','):
+        k, sep, v = part.partition('=')
+        if sep and k.strip().lower() == attr:
+            return v.strip()
+    return None
+
+def _kdps_dynamic_roles(sm, role_keys):
+    # Set of existing Superset roles whose name matches any of role_keys (a memberOf DN's RDN, or a
+    # plain group name), case-insensitively. Live DB lookup. Best-effort: any error yields an empty
+    # set so a directory quirk can never break login.
+    out = set()
+    if not _DYNAMIC_ROLE_FROM_GROUP or not role_keys:
+        return out
+    try:
+        try:
+            by_lower = {str(r.name).strip().lower(): r for r in sm.get_all_roles()}
+        except Exception:
+            by_lower = None
+        for key in role_keys:
+            for cand in (_kdps_rdn_value(key, _KDPS_GROUP_RDN_ATTR), key):
+                if not cand:
+                    continue
+                cand = str(cand).strip()
+                if not cand:
+                    continue
+                if _DYNAMIC_ROLE_RE is not None and not _DYNAMIC_ROLE_RE.search(cand):
+                    continue
+                role = by_lower.get(cand.lower()) if by_lower is not None else sm.find_role(cand)
+                if role is not None:
+                    out.add(role)
+        if out:
+            logging.getLogger("superset.security").info(
+                "KDPS: dynamic role mapping granted %s from IdP groups", sorted(str(r.name) for r in out))
+    except Exception as _e:
+        logging.getLogger("superset.security").warning("KDPS dynamic role mapping failed: %s", _e)
+    return out
+# -------------------------------------------------------------------------------------------
 
 # Redis Base URL
 {{- if .Values.supersetNode.connections.redis_password }}
@@ -363,6 +429,12 @@ a{display:block;text-align:center;margin-top:14px;color:#008e6e;font-size:12px}<
                 'role_keys': role_keys,
             }
 
+        def get_roles_from_keys(self, role_keys):
+            # Static AUTH_ROLES_MAPPING (admin grants) UNION the live dynamic role-name matches.
+            roles = set(super().get_roles_from_keys(role_keys))
+            roles |= _kdps_dynamic_roles(self, role_keys)
+            return list(roles)
+
     CUSTOM_SECURITY_MANAGER = CustomSsoSecurityManager
 
     OAUTH_PROVIDERS = [
@@ -506,6 +578,13 @@ elif AUTH_TYPE in ("LDAP", "AD"):
             except Exception as _e:
                 logging.getLogger("superset.security").warning("KDPS LDAP admin mapping failed: %s", _e)
             return roles
+
+        def get_roles_from_keys(self, role_keys):
+            # super()._ldap_calculate_user_roles routes the memberOf list through here, so this also
+            # covers the LDAP path: static AUTH_ROLES_MAPPING UNION the live dynamic role-name matches.
+            roles = set(super().get_roles_from_keys(role_keys))
+            roles |= _kdps_dynamic_roles(self, role_keys)
+            return list(roles)
 
     CUSTOM_SECURITY_MANAGER = KdpsLdapSecurityManager
 else:

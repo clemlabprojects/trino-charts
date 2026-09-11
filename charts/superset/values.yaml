@@ -37,6 +37,13 @@ global:
     adminUsers: ""
     adminGroups: ""
 
+    # Dynamic role mapping: when true, at each login Superset grants any role whose NAME matches one
+    # of the user's IdP groups (LDAP memberOf CN / OIDC groups claim), looked up live from the DB —
+    # so a role created in the Superset UI takes effect on the next login with NO restart. Optionally
+    # restrict which role names may be auto-granted with dynamicRolePattern (a regex, e.g. "^ad_").
+    dynamicRoleFromGroup: false
+    dynamicRolePattern: ""
+
     # Authentication profile — set by Ambari K8S view OIDC provisioning.
     # Supported modes: none | ldap | ad | oidc
     auth:
