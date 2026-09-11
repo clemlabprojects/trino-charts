@@ -553,6 +553,43 @@ elif AUTH_TYPE in ("LDAP", "AD"):
                     logging.getLogger("superset.security").warning("KDPS local-login fallback failed: %s", _e)
             return user
 
+        def _search_ldap(self, ldap, con, username):
+            # FAB's LDAP search requests only firstname/lastname/email (+ the group field ONLY when
+            # AUTH_ROLES_MAPPING is non-empty) — it never returns the configured UID field, even
+            # though the filter matches on it. So _ldap_calculate_user_roles' admin-USER match
+            # (self.auth_ldap_uid_field) always saw an empty list and admins stayed Gamma; the group
+            # field is likewise starved when no static roles are mapped, which would break the
+            # dynamic role mapping. Intercept con.search_s to ALSO request the configured UID and
+            # group fields (by their configured names — works with uid, sAMAccountName, ...) without
+            # reimplementing FAB's DN/bind logic. Best-effort: on any hiccup we fall back to FAB's
+            # unmodified search (i.e. the previous behaviour), never a crash.
+            extra = [f for f in (getattr(self, 'auth_ldap_uid_field', None),
+                                 getattr(self, 'auth_ldap_group_field', None)) if f]
+            orig = getattr(con, 'search_s', None)
+            patched = False
+            if orig is not None and extra:
+                def _kdps_search_s(base, scope, filterstr='(objectClass=*)', attrlist=None, *a, **k):
+                    if attrlist is not None:
+                        attrlist = list(attrlist) + [f for f in extra if f not in attrlist]
+                    return orig(base, scope, filterstr, attrlist, *a, **k)
+                try:
+                    con.search_s = _kdps_search_s
+                    patched = True
+                except Exception as _e:
+                    logging.getLogger("superset.security").warning(
+                        "KDPS: could not augment LDAP requested attributes: %s", _e)
+            try:
+                return super()._search_ldap(ldap, con, username)
+            finally:
+                if patched:
+                    try:
+                        del con.search_s
+                    except Exception:
+                        try:
+                            con.search_s = orig
+                        except Exception:
+                            pass
+
         def _ldap_calculate_user_roles(self, user_attributes):
             try:
                 roles = list(super()._ldap_calculate_user_roles(user_attributes))
