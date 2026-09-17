@@ -1,6 +1,42 @@
 {{- $baseCatalogs := merge (default dict .Values.catalogs) (default dict .Values.additionalCatalogs) -}}
 {{- $coordinatorCatalogs := merge (default dict .Values.coordinator.additionalCatalogs) (deepCopy $baseCatalogs) -}}
 {{- $workerCatalogs := merge (default dict .Values.worker.additionalCatalogs) (deepCopy $baseCatalogs) -}}
+{{- /* Polaris (Iceberg REST) OAuth2 credential: appended to the catalogs named in
+       polarisCredential.catalogs so the client id/secret never sit in this ConfigMap — Trino
+       resolves ${ENV:...} from the Secret-backed env vars emitted by "trino.polaris.env".
+       Idempotent: skipped for a catalog that already carries the property. */ -}}
+{{- if include "trino.polaris.enabled" . }}
+{{- $line := "iceberg.rest-catalog.oauth2.credential=${ENV:POLARIS_CLIENT_ID}:${ENV:POLARIS_CLIENT_SECRET}" }}
+{{- range $c := ((.Values.polarisCredential | default dict).catalogs | default (list "iceberg")) }}
+{{- range $m := (list $coordinatorCatalogs $workerCatalogs) }}
+{{- if hasKey $m $c }}
+{{- $cur := index $m $c }}
+{{- if not (contains "iceberg.rest-catalog.oauth2.credential" $cur) }}
+{{- $_ := set $m $c (printf "%s\n%s\n" (trimSuffix "\n" $cur) $line) }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- /* Static S3 credential (no-STS object stores such as Ozone S3 gateway / MinIO): appended to the
+       catalogs named in s3Credential.catalogs from the Secret-backed env vars emitted by
+       "trino.s3cred.env"; credential vending is switched off there because Trino refuses a table
+       whose catalog vends nothing. Idempotent. */ -}}
+{{- if include "trino.s3cred.enabled" . }}
+{{- $s3lines := "s3.aws-access-key=${ENV:ICEBERG_S3_ACCESS_KEY}\ns3.aws-secret-key=${ENV:ICEBERG_S3_SECRET_KEY}" }}
+{{- range $c := ((.Values.s3Credential | default dict).catalogs | default (list "iceberg")) }}
+{{- range $m := (list $coordinatorCatalogs $workerCatalogs) }}
+{{- if hasKey $m $c }}
+{{- $cur := index $m $c }}
+{{- $cur = replace "iceberg.rest-catalog.vended-credentials-enabled=true" "iceberg.rest-catalog.vended-credentials-enabled=false" $cur }}
+{{- if not (contains "s3.aws-access-key=" $cur) }}
+{{- $cur = printf "%s\n%s\n" (trimSuffix "\n" $cur) $s3lines }}
+{{- end }}
+{{- $_ := set $m $c $cur }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
 
 {{- if $coordinatorCatalogs }}
 apiVersion: v1

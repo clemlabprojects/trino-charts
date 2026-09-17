@@ -221,6 +221,8 @@ spec:
           env:
             {{- include "trino.env" . | nindent 12 }}
             {{- include "trino.security.env" . | nindent 12 }}
+            {{- include "trino.polaris.env" . | nindent 12 }}
+            {{- include "trino.s3cred.env" . | nindent 12 }}
           envFrom:
             {{- tpl (toYaml .Values.envFrom) . | nindent 12 }}
           volumeMounts:

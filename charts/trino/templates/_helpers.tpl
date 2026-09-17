@@ -502,3 +502,64 @@ the emptyDir is fresh on every pod start.
       secretProviderClass: {{ include "trino.vault.secretProviderClassName" . | quote }}
 {{- end }}
 {{- end }}
+
+{{/*
+Env for the Polaris (Iceberg REST) principal credential. The KDPS-generated `iceberg` catalog
+references ${ENV:POLARIS_CLIENT_ID}:${ENV:POLARIS_CLIENT_SECRET}; this resolves them from
+polarisCredential.secretRef, else from the chart-rendered <fullname>-polaris-credential Secret
+(inline clientId/clientSecret), and emits nothing when the credential is not configured.
+Included on BOTH coordinator and worker (catalogs are loaded on every node).
+*/}}
+{{- define "trino.polaris.enabled" -}}
+{{- $pc := .Values.polarisCredential | default dict -}}
+{{- $ref := $pc.secretRef | default dict -}}
+{{- if or $ref.name $pc.clientId -}}true{{- end -}}
+{{- end -}}
+
+{{- define "trino.polaris.env" -}}
+{{- $pc := .Values.polarisCredential | default dict -}}
+{{- $ref := $pc.secretRef | default dict -}}
+{{- $name := "" -}}
+{{- if $ref.name -}}{{- $name = $ref.name -}}
+{{- else if $pc.clientId -}}{{- $name = printf "%s-polaris-credential" (include "trino.fullname" .) -}}
+{{- end -}}
+{{- if $name }}
+- name: POLARIS_CLIENT_ID
+  valueFrom:
+    secretKeyRef:
+      name: {{ $name | quote }}
+      key: {{ default "client_id" $ref.clientIdKey | quote }}
+- name: POLARIS_CLIENT_SECRET
+  valueFrom:
+    secretKeyRef:
+      name: {{ $name | quote }}
+      key: {{ default "client_secret" $ref.clientSecretKey | quote }}
+{{- end }}
+{{- end -}}
+
+{{- define "trino.s3cred.enabled" -}}
+{{- $sc := .Values.s3Credential | default dict -}}
+{{- $ref := $sc.secretRef | default dict -}}
+{{- if or $ref.name $sc.accessKey -}}true{{- end -}}
+{{- end -}}
+
+{{- define "trino.s3cred.env" -}}
+{{- $sc := .Values.s3Credential | default dict -}}
+{{- $ref := $sc.secretRef | default dict -}}
+{{- $name := "" -}}
+{{- if $ref.name -}}{{- $name = $ref.name -}}
+{{- else if $sc.accessKey -}}{{- $name = printf "%s-iceberg-s3-credential" (include "trino.fullname" .) -}}
+{{- end -}}
+{{- if $name }}
+- name: ICEBERG_S3_ACCESS_KEY
+  valueFrom:
+    secretKeyRef:
+      name: {{ $name | quote }}
+      key: {{ default "access_key" $ref.accessKeyKey | quote }}
+- name: ICEBERG_S3_SECRET_KEY
+  valueFrom:
+    secretKeyRef:
+      name: {{ $name | quote }}
+      key: {{ default "secret_key" $ref.secretKeyKey | quote }}
+{{- end }}
+{{- end -}}

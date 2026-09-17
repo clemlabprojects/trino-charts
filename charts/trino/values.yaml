@@ -698,6 +698,47 @@ additionalCatalogs: {}
 # additionalCatalogs -- Deprecated, use `catalogs` instead. Configure additional
 # [catalogs](https://trino.io/docs/current/installation/deployment.html#catalog-properties).
 
+# Credential a Polaris (Iceberg REST catalog) principal — used by the KDPS-generated `iceberg`
+# catalog (iceberg.catalog.type=rest, security=OAUTH2). The catalog file references the
+# credential ONLY as ${ENV:POLARIS_CLIENT_ID}:${ENV:POLARIS_CLIENT_SECRET}; this block decides
+# where those env vars come from: an existing Secret (secretRef) or, when clientId/clientSecret
+# are given inline (the KDPS wizard path), a Secret this chart renders
+# (<release>-polaris-credential). Nothing is rendered/injected when both are empty.
+# Apache Polaris (Iceberg REST catalog) OAuth2 client credential.
+# The client id/secret are exposed to every Trino pod as POLARIS_CLIENT_ID / POLARIS_CLIENT_SECRET
+# (from `secretRef` when set, otherwise from a chart-managed Secret built from `clientId`/`clientSecret`)
+# and the chart appends
+#   iceberg.rest-catalog.oauth2.credential=${ENV:POLARIS_CLIENT_ID}:${ENV:POLARIS_CLIENT_SECRET}
+# to each catalog listed in `catalogs`, so the secret never lands in the catalog ConfigMap.
+polarisCredential:
+  secretRef:
+    name: ""
+    clientIdKey: "client_id"
+    clientSecretKey: "client_secret"
+  clientId: ""
+  clientSecret: ""
+  # additionalCatalogs entries that authenticate to Polaris with this credential.
+  catalogs:
+    - iceberg
+
+# Static S3 credential for Iceberg REST catalogs whose object store cannot vend credentials
+# (Apache Polaris on Ozone S3 gateway / MinIO: no STS). The access key / secret key are exposed
+# to every Trino pod as ICEBERG_S3_ACCESS_KEY / ICEBERG_S3_SECRET_KEY (from `secretRef` when set,
+# otherwise from a chart-managed Secret built from `accessKey`/`secretKey`) and the chart appends
+#   s3.aws-access-key=${ENV:ICEBERG_S3_ACCESS_KEY}
+#   s3.aws-secret-key=${ENV:ICEBERG_S3_SECRET_KEY}
+# to each catalog listed in `catalogs`, forcing iceberg.rest-catalog.vended-credentials-enabled=false
+# there (static keys and credential vending are mutually exclusive).
+s3Credential:
+  secretRef:
+    name: ""
+    accessKeyKey: "access_key"
+    secretKeyKey: "secret_key"
+  accessKey: ""
+  secretKey: ""
+  catalogs:
+    - iceberg
+
 env: []
 # env -- additional environment variables added to every pod, specified as a list with explicit values
 # @raw
