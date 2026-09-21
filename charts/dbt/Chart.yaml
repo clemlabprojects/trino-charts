@@ -1,0 +1,20 @@
+apiVersion: v2
+name: dbt
+description: |
+  dbt with the Trino adapter, for the KDPS data transformation service.
+  Runs transformations against a KDPS-deployed Trino, serves the generated
+  documentation site, and pulls the project from git so the same models can be
+  driven by an external Airflow or by the chart's own schedule.
+type: application
+version: 0.1.6
+appVersion: "1.10.23"
+home: https://docs.getdbt.com
+keywords:
+  - dbt
+  - trino
+  - iceberg
+  - transformation
+  - analytics
+maintainers:
+  - name: ClemLab
+    url: https://clemlab.com

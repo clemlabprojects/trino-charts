@@ -1,0 +1,106 @@
+{{- /*
+The documentation site. dbt's own "docs serve" is a development helper that opens a
+browser and serves from the project directory, so the image builds the site once and
+serves the generated directory with a static server instead.
+*/ -}}
+{{- if .Values.docs.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "dbt.fullname" . }}-docs
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "dbt.labels" . | nindent 4 }}
+    app.kubernetes.io/component: docs
+spec:
+  replicas: {{ .Values.docs.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "dbt.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: docs
+  template:
+    metadata:
+      labels:
+        {{- include "dbt.labels" . | nindent 8 }}
+        app.kubernetes.io/component: docs
+      annotations:
+        {{- /* Roll the pods when the connection profile changes. */}}
+        checksum/profiles: {{ include (print $.Template.BasePath "/secret-profiles.yaml") . | sha256sum }}
+        {{- with .Values.docs.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- include "dbt.imagePullSecrets" . | nindent 6 }}
+      serviceAccountName: {{ include "dbt.serviceAccountName" . }}
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.project.git.enabled }}
+      initContainers:
+        - {{- include "dbt.gitSyncContainer" (dict "root" . "oneTime" true) | nindent 10 }}
+      {{- end }}
+      containers:
+        - name: docs
+          image: {{ include "dbt.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - docs-server
+            {{- range .Values.docs.extraArgs }}
+            - {{ . | quote }}
+            {{- end }}
+          env:
+            {{- include "dbt.env" . | nindent 12 }}
+            - name: DBT_DOCS_PORT
+              value: {{ .Values.service.port | quote }}
+            - name: DBT_DOCS_REFRESH_SECONDS
+              value: {{ .Values.docs.refreshSeconds | quote }}
+            - name: DBT_DOCS_SKIP_GENERATE
+              value: {{ .Values.docs.skipGenerate | quote }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+              protocol: TCP
+          {{- if .Values.docs.livenessProbe.enabled }}
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: {{ .Values.docs.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.docs.livenessProbe.periodSeconds }}
+          {{- end }}
+          {{- if .Values.docs.readinessProbe.enabled }}
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: {{ .Values.docs.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.docs.readinessProbe.periodSeconds }}
+          {{- end }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+            {{- if .Values.runAsUser }}
+            runAsUser: {{ .Values.runAsUser }}
+            {{- end }}
+          resources:
+            {{- toYaml .Values.docs.resources | nindent 12 }}
+          volumeMounts:
+            {{- include "dbt.volumeMounts" . | nindent 12 }}
+        {{- if .Values.project.git.enabled }}
+        - {{- include "dbt.gitSyncContainer" (dict "root" . "oneTime" false) | nindent 10 }}
+        {{- end }}
+      volumes:
+        {{- include "dbt.volumes" . | nindent 8 }}
+      {{- with .Values.docs.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.docs.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.docs.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

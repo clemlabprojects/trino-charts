@@ -1,0 +1,246 @@
+# Default values for the dbt chart.
+#
+# The chart deploys three things, each independently switchable:
+#   * the documentation site, a long-running pod serving what "dbt docs generate" produced;
+#   * a scheduled run, for clusters where no orchestrator drives dbt;
+#   * the project itself, pulled from git so the same models can be driven by an external
+#     Airflow, by the schedule below, or by hand.
+
+nameOverride: ""
+fullnameOverride: ""
+
+global:
+  imageRegistry: "registry.clemlab.com/clemlabprojects"
+  imagePullSecrets: []
+  security:
+    # TLS trust for a Trino behind a company CA. This is the exact shape the platform injects
+    # for every service it installs, so a KDPS deploy fills it in by itself. The Secret it
+    # creates carries the PEM bundle next to the Java keystore; dbt is Python, so it reads the
+    # PEM and ignores the keystore. Missing pieces simply leave the trust material unmounted
+    # rather than failing the install.
+    tls:
+      enabled: false
+      mountPath: /etc/security/truststore
+      truststoreSecret: ""
+      truststoreKey: truststore.jks
+      truststorePasswordKey: truststore.password
+      truststore:
+        enabled: false
+        format: pem
+        pemKey: ca.crt
+    # Kerberos identity for a kerberized Trino. The keytab comes from a Secret the
+    # platform issued; the entrypoint runs kinit with it before dbt starts.
+    kerberos:
+      enabled: false
+      keytab:
+        secretName: ""
+        secretDataKey: "service.keytab"
+        mountPath: /etc/security/keytabs
+      principal: ""
+      # ConfigMap carrying krb5.conf; without one the image uses the cluster default.
+      configMapName: ""
+
+imagePullSecrets:
+  - name: registry-credentials
+
+image:
+  registry: ""          # "" falls back to global.imageRegistry
+  repository: dbt
+  # ODP image tag: <dbt version>.<stack version>-<build number>. "" falls back to Chart appVersion.
+  tag: "1.10.23.1.3.2.0-30"
+  digest: ""
+  pullPolicy: IfNotPresent
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+# --- the dbt project -------------------------------------------------------
+project:
+  # Pull the project from git. This is what makes the deployment GitOps-friendly:
+  # the models are versioned in a repository, and an external orchestrator can run
+  # exactly the same commit.
+  git:
+    enabled: true
+    repo: ""
+    branch: "main"
+    # Path of the dbt project inside the repository, when it is not at the root.
+    subPath: ""
+    # git-sync refreshes the working copy through this symlink.
+    linkName: "current"
+    period: "60s"
+    depth: 1
+    # Secret with credentials: key "token" for HTTPS, or "ssh" for an SSH key.
+    secretRef:
+      name: ""
+      tokenKey: "token"
+      sshKey: "ssh"
+    # Accept the host key of a self-hosted git server (mounted from the Secret above).
+    knownHostsKey: ""
+    image:
+      registry: ""
+      repository: git-sync
+      tag: "v4.3.0"
+    resources: {}
+  # Without git, the project comes from an existing volume the operator prepared.
+  existingClaim: ""
+  subPath: ""
+
+# --- connection to Trino ---------------------------------------------------
+# Rendered into profiles.yml. Credentials always travel through a Secret: either the
+# one the chart builds from the values below, or an existing one the operator provides.
+trino:
+  host: ""
+  port: 8080
+  # dbt calls the Trino catalog "database".
+  catalog: "iceberg"
+  schema: "analytics"
+  threads: 4
+  httpScheme: "http"
+  timezone: "UTC"
+  retries: 3
+  sessionProperties: {}
+  auth:
+    # none | ldap | kerberos | gssapi | jwt | certificate | oauth | oauth_console
+    method: "none"
+    user: "dbt"
+    # Inline credentials, stored by the chart in its own Secret.
+    password: ""
+    jwtToken: ""
+    # Run queries as the calling user rather than the service account (LDAP only);
+    # Trino must allow the service account to impersonate.
+    impersonationUser: ""
+    # Or an existing Secret carrying them.
+    existingSecret: ""
+    passwordKey: "password"
+    jwtTokenKey: "jwt_token"
+    # Kerberos specifics; the keytab itself comes from global.security.kerberos.
+    servicePrincipalName: "trino"
+    mutualAuthentication: false
+    # Client certificate authentication.
+    clientCertificateSecret: ""
+    clientCertificateKey: "tls.crt"
+    clientPrivateKey: "tls.key"
+
+profiles:
+  # Bring your own profiles.yml instead of letting the chart render one.
+  # The Secret must carry a key named "profiles.yml".
+  existingSecret: ""
+  # Name of the profile this chart renders. It is handed to every dbt invocation, so a project
+  # that names a different profile in dbt_project.yml still runs unchanged.
+  profileName: "trino"
+  target: "prod"
+  # Extra keys merged into the rendered output block, for adapter options the
+  # chart does not model explicitly.
+  extraOutputConfig: {}
+
+# --- documentation site ----------------------------------------------------
+docs:
+  enabled: true
+  replicaCount: 1
+  # Rebuild the site every N seconds so a scheduled run's results appear without a restart.
+  # 0 disables the periodic rebuild.
+  refreshSeconds: 0
+  # Skip generation and serve what is already on the target volume.
+  skipGenerate: false
+  extraArgs: []
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+  podAnnotations: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  livenessProbe:
+    enabled: true
+    initialDelaySeconds: 30
+    periodSeconds: 30
+  readinessProbe:
+    enabled: true
+    initialDelaySeconds: 10
+    periodSeconds: 10
+
+service:
+  type: ClusterIP
+  port: 8080
+  annotations: {}
+
+ingress:
+  enabled: false
+  className: "nginx"
+  annotations: {}
+  hosts:
+    - host: dbt.example.com
+      paths:
+        - path: /
+          pathType: ImplementationSpecific
+  tls: []
+
+# On OpenShift the chart emits a Route instead of an Ingress.
+route:
+  enabled: true
+  annotations: {}
+
+# --- scheduled run ---------------------------------------------------------
+# For clusters with no orchestrator. When an Airflow drives dbt, leave this off:
+# the DAG runs the same image with the same profile.
+runner:
+  enabled: false
+  schedule: "0 * * * *"
+  # dbt subcommand and arguments, e.g. ["build", "--select", "tag:daily"].
+  args: ["build"]
+  concurrencyPolicy: Forbid
+  suspend: false
+  backoffLimit: 1
+  activeDeadlineSeconds: 3600
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  restartPolicy: Never
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      cpu: "2"
+      memory: 2Gi
+  podAnnotations: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# Shared volume for the generated documentation and run artifacts. With the default
+# emptyDir the documentation pod generates its own copy at start; a claim lets a
+# scheduled run and the documentation pod share one set of artifacts.
+persistence:
+  enabled: false
+  existingClaim: ""
+  storageClass: ""
+  accessMode: ReadWriteOnce
+  size: 2Gi
+
+# Left empty on purpose. OpenShift assigns both the user and the group from the namespace's
+# own range and refuses a pod that asks for anything else, so pinning fsGroup here would make
+# every install fail there. On vanilla Kubernetes, where nothing is assigned, set
+# `fsGroup: 1001` so the mounted volumes are writable by the image's user.
+podSecurityContext: {}
+
+securityContext:
+  runAsNonRoot: true
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop: ["ALL"]
+  seccompProfile:
+    type: RuntimeDefault
+
+# On OpenShift leave runAsUser unset: the namespace's UID range applies. Pin it only
+# on vanilla Kubernetes, where the image's own user (1001) is used otherwise.
+runAsUser: ~
+
+env: []
+extraVolumes: []
+extraVolumeMounts: []

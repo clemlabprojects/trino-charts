@@ -1,0 +1,38 @@
+{{ .Chart.Name }} {{ .Chart.Version }} installed as {{ .Release.Name }} in {{ .Release.Namespace }}.
+
+dbt reaches Trino at {{ .Values.trino.host | default "<trino.host not set>" }}:{{ .Values.trino.port }}
+using catalog {{ .Values.trino.catalog }}, schema {{ .Values.trino.schema }}, authentication "{{ .Values.trino.auth.method }}".
+
+{{- if .Values.project.git.enabled }}
+
+The project is pulled from {{ .Values.project.git.repo | default "<project.git.repo not set>" }} ({{ .Values.project.git.branch }}).
+Push a commit and the documentation pod picks it up within {{ .Values.project.git.period }}.
+{{- end }}
+
+{{- if .Values.docs.enabled }}
+
+Documentation site:
+{{- if and .Values.ingress.enabled .Values.route.enabled (.Capabilities.APIVersions.Has "route.openshift.io/v1") }}
+  https://{{ (first .Values.ingress.hosts).host }}
+{{- else if .Values.ingress.enabled }}
+  http{{ if .Values.ingress.tls }}s{{ end }}://{{ (first .Values.ingress.hosts).host }}
+{{- else }}
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "dbt.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }}
+{{- end }}
+{{- end }}
+
+{{- if .Values.runner.enabled }}
+
+Transformations run on schedule "{{ .Values.runner.schedule }}" as: dbt {{ join " " .Values.runner.args }}
+Run one now:
+  kubectl -n {{ .Release.Namespace }} create job --from=cronjob/{{ include "dbt.fullname" . }}-run {{ include "dbt.fullname" . }}-manual
+{{- else }}
+
+No schedule is configured: drive dbt from your orchestrator, or set runner.enabled=true.
+{{- end }}
+
+{{- if eq .Values.trino.auth.method "kerberos" }}
+
+Kerberos is in use: the keytab comes from Secret {{ .Values.global.security.kerberos.keytab.secretName | default "<not set>" }}
+and dbt authenticates as {{ .Values.global.security.kerberos.principal | default "<not set>" }}.
+{{- end }}

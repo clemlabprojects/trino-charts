@@ -1,0 +1,83 @@
+{{- /*
+Scheduled transformation run, for a cluster with no orchestrator. When Airflow drives
+dbt this stays off and the DAG runs the same image with the same profile, so the two
+paths cannot drift apart.
+*/ -}}
+{{- if .Values.runner.enabled }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "dbt.fullname" . }}-run
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "dbt.labels" . | nindent 4 }}
+    app.kubernetes.io/component: runner
+spec:
+  schedule: {{ .Values.runner.schedule | quote }}
+  suspend: {{ .Values.runner.suspend }}
+  concurrencyPolicy: {{ .Values.runner.concurrencyPolicy }}
+  successfulJobsHistoryLimit: {{ .Values.runner.successfulJobsHistoryLimit }}
+  failedJobsHistoryLimit: {{ .Values.runner.failedJobsHistoryLimit }}
+  jobTemplate:
+    metadata:
+      labels:
+        {{- include "dbt.labels" . | nindent 8 }}
+        app.kubernetes.io/component: runner
+    spec:
+      backoffLimit: {{ .Values.runner.backoffLimit }}
+      activeDeadlineSeconds: {{ .Values.runner.activeDeadlineSeconds }}
+      template:
+        metadata:
+          labels:
+            {{- include "dbt.labels" . | nindent 12 }}
+            app.kubernetes.io/component: runner
+          {{- with .Values.runner.podAnnotations }}
+          annotations:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+        spec:
+          restartPolicy: {{ .Values.runner.restartPolicy }}
+          {{- include "dbt.imagePullSecrets" . | nindent 10 }}
+          serviceAccountName: {{ include "dbt.serviceAccountName" . }}
+          {{- with .Values.podSecurityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- if .Values.project.git.enabled }}
+          initContainers:
+            - {{- include "dbt.gitSyncContainer" (dict "root" . "oneTime" true) | nindent 14 }}
+          {{- end }}
+          containers:
+            - name: dbt
+              image: {{ include "dbt.image" . }}
+              imagePullPolicy: {{ .Values.image.pullPolicy }}
+              args:
+                {{- range .Values.runner.args }}
+                - {{ . | quote }}
+                {{- end }}
+              env:
+                {{- include "dbt.env" . | nindent 16 }}
+              securityContext:
+                {{- toYaml .Values.securityContext | nindent 16 }}
+                {{- if .Values.runAsUser }}
+                runAsUser: {{ .Values.runAsUser }}
+                {{- end }}
+              resources:
+                {{- toYaml .Values.runner.resources | nindent 16 }}
+              volumeMounts:
+                {{- include "dbt.volumeMounts" . | nindent 16 }}
+          volumes:
+            {{- include "dbt.volumes" . | nindent 12 }}
+          {{- with .Values.runner.nodeSelector }}
+          nodeSelector:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.runner.tolerations }}
+          tolerations:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.runner.affinity }}
+          affinity:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+{{- end }}
