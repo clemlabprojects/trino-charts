@@ -6,7 +6,7 @@ description: |
   documentation site, and pulls the project from git so the same models can be
   driven by an external Airflow or by the chart's own schedule.
 type: application
-version: 0.1.6
+version: 0.1.7
 appVersion: "1.10.23"
 home: https://docs.getdbt.com
 keywords:
