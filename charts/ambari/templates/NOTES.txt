@@ -1,0 +1,43 @@
+Ambari {{ .Chart.AppVersion }} (standalone, hosting the KDPS view) is installing.
+
+  Database : {{ .Values.database.user }}@{{ .Values.database.host }}:{{ .Values.database.port }}/{{ .Values.database.name }}
+             password from Secret {{ include "ambari.db.secretName" . }} (key {{ include "ambari.db.passwordKey" . }})
+  Master key from Secret {{ include "ambari.masterKey.secretName" . }} (key {{ include "ambari.masterKey.secretKey" . }})
+             Back it up. Everything encrypted with it -- the credential store, and the kubeconfig
+             the KDPS view stores -- becomes unreadable if it is lost or changed.
+  Agents   : {{ if .Values.agent.enabled }}enabled{{ else }}none, so no agent listeners and no generated CA{{ end }}
+{{- if and .Values.route.enabled (.Capabilities.APIVersions.Has "route.openshift.io/v1") }}
+  URL      : https://{{ .Values.route.host }}/
+  TLS      : {{ if .Values.api.tls.enabled }}terminated by Ambari on {{ .Values.api.tls.port }}, route {{ .Values.route.tls.mode }}{{ else }}terminated by the router ({{ .Values.route.tls.mode }}){{ if eq .Values.route.tls.mode "edgeWithCert" }}, certificate from Secret {{ include "ambari.route.tlsSecretName" . }}{{ end }}{{ end }}
+{{- else if .Values.ingress.enabled }}
+  URL      : https://{{ .Values.ingress.host }}/
+{{- else }}
+  URL      : kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "ambari.fullname" . }} 8080:{{ .Values.service.port }}
+{{- end }}
+
+First start creates the Ambari schema when the database is empty, so give it a few minutes.
+{{- if include "ambari.vault.csiEnabled" . }}
+
+Secrets are coming from Vault at {{ .Values.global.vault.address }} through the Secrets Store CSI
+driver. If no pod appears at all, check the Deployment for a ReplicaSetCreateError: the namespace
+has to allow the driver's inline volume.
+
+    kubectl label ns {{ .Release.Namespace }} \
+      pod-security.kubernetes.io/enforce=privileged \
+      security.openshift.io/scc.podSecurityLabelSync=false
+{{- if and .Values.vault.csi.routeCert.enabled (eq .Values.route.tls.mode "edgeWithCert") }}
+
+The route certificate is one of those secrets, and a CSI-synced Secret exists only while a pod that
+mounts it is running. The Route is therefore in a later Argo CD sync wave. With plain helm on a
+first install, the Route is rejected until the server's pod is up -- run the install again, or
+install with route.tls.mode=edge and switch afterwards.
+{{- end }}
+{{- end }}
+
+Then sign in (admin/admin by default — change it) and point the KDPS view at this cluster, once:
+  * OpenShift : KDPS -> Configuration -> log in with the API URL and an account that can deploy.
+                Stored in the Ambari database, so it survives pod restarts and upgrades.
+  * Kubernetes: KDPS -> Configuration -> upload a kubeconfig. That one is a FILE under
+                /var/lib/ambari-server, so keep persistence.enabled=true or it is lost with the pod.
+
+Operating this: see the chart's OPERATIONS.md.

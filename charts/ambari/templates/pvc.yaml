@@ -1,0 +1,21 @@
+{{- if and .Values.persistence.enabled (not .Values.persistence.existingClaim) }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "ambari.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "ambari.labels" . | nindent 4 }}
+  annotations:
+    # This claim holds the master key that encrypts values in the Ambari database, and the KDPS
+    # view's kubeconfig. Deleting it with the release would leave the database unreadable, so it
+    # outlives `helm uninstall` and is removed deliberately or not at all.
+    helm.sh/resource-policy: keep
+spec:
+  accessModes: {{- toYaml .Values.persistence.accessModes | nindent 4 }}
+  {{- if .Values.persistence.storageClass }}
+  storageClassName: {{ .Values.persistence.storageClass | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.size | quote }}
+{{- end }}

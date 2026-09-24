@@ -1,0 +1,16 @@
+apiVersion: v2
+name: ambari
+description: |
+  Apache Ambari running standalone (no managed Hadoop cluster) to host the Clemlab KDPS view —
+  the console that deploys and governs the Kubernetes data platform services. Built for the
+  cluster it manages: it runs inside OpenShift or Kubernetes and is deployed by Argo CD.
+type: application
+version: 0.1.0
+appVersion: "2.8.2.0-137"
+keywords: [ambari, kdps, clemlab, openshift, data-platform]
+home: https://clemlab.com
+sources:
+  - https://github.com/clemlabprojects/ambari
+maintainers:
+  - name: Clemlab
+    email: support@clemlab.com

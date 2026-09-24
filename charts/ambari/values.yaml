@@ -1,0 +1,250 @@
+# Ambari (standalone) hosting the Clemlab KDPS view.
+#
+# The chart deploys ONE Ambari server. It is not a Hadoop cluster manager here: it exists to serve
+# the KDPS view, which talks to the Kubernetes/OpenShift API of the cluster it runs in.
+#
+# Two things are deliberately NOT provisioned by this chart:
+#   * the database — Ambari keeps all of its state, including the KDPS view's own configuration,
+#     in PostgreSQL. Production installs point at a database the customer already runs.
+#   * the cluster credential — the operator supplies it once through the KDPS UI (an OpenShift
+#     login, or an uploaded kubeconfig). See `persistence` below for why that survives restarts.
+
+nameOverride: ""
+fullnameOverride: ""
+
+image:
+  registry: ""                      # falls back to global.imageRegistry
+  repository: ambari-kdps
+  tag: ""                           # defaults to .Chart.AppVersion
+  digest: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+global:
+  imageRegistry: registry.clemlab.com/clemlabprojects
+  imagePullSecrets: []
+  vault:
+    enabled: false
+    address: ""                     # e.g. https://vault.vault-csi.svc:8200
+    namespace: ""                   # Vault Enterprise namespace, if any
+    auth:
+      method: kubernetes            # kubernetes | approle
+      mountPath: kubernetes
+      kubernetes:
+        role: ""
+      approle:
+        roleId: ""
+        secretId: ""
+    csi:
+      caCertSecret: ""              # Secret holding the CA that signed Vault's certificate
+
+# --- database -------------------------------------------------------------------------------
+# Ambari requires PostgreSQL. This chart only ever CONNECTS to one; it never runs one.
+database:
+  host: ""                          # required
+  port: 5432
+  name: ambari
+  user: ambari
+  # Where the password comes from, in order of preference:
+  #   existingSecret  — a Secret the customer already manages (sealed-secrets, ExternalSecrets, …)
+  #   vault           — synced from Vault by the CSI driver into `vault.database.secretName`
+  #   password        — inline. Development only: it lands in the release values.
+  existingSecret: ""
+  existingSecretPasswordKey: password
+  password: ""
+  # Ambari's own schema is created on first start when the database is empty.
+  #
+  # Driver properties, passed straight to the JDBC driver. A database outside the cluster normally
+  # wants TLS, which is what these are for:
+  #   properties:
+  #     ssl: "true"
+  #     sslmode: verify-full
+  #     sslrootcert: /vault/secrets/pg-ca.pem
+  properties: {}
+
+# --- master key -------------------------------------------------------------------------------
+# Ambari encrypts its credential store with this key, and the KDPS view encrypts the kubeconfig you
+# upload with it. It is REQUIRED: without it the view falls back to a passphrase that is a constant
+# in the published source, and the uploaded kubeconfig would only look protected.
+#
+# It must exist before the release is installed and it must never change: rotate it and everything
+# already encrypted with the old one becomes unreadable. The chart will not generate one, because a
+# generated value would be re-generated on every Argo CD sync.
+masterKey:
+  existingSecret: ""                # a Secret you create, or one Vault syncs (see vault.csi.masterKey)
+  existingSecretKey: master-key
+  value: ""                         # inline. Development only: it lands in the release values.
+
+# --- agents -----------------------------------------------------------------------------------
+# Ambari as the KDPS operator manages Kubernetes, not a fleet of hosts, so it has no agents to
+# authenticate. Leaving this off is what removes the agent SSL listeners -- and with them the
+# server-side certificate authority the server would otherwise generate with openssl on first start.
+# Turn it on only if this server also manages Ambari agents.
+agent:
+  enabled: false
+
+# --- Ambari's own TLS -------------------------------------------------------------------------
+# The server terminating TLS itself, rather than serving plain HTTP behind a router that does it.
+# The certificate comes from a kubernetes.io/tls Secret -- your own, or one Vault syncs -- and an
+# init container turns it into the PKCS12 keystore Ambari expects. With this on, the server listens
+# on 8443 only, and route.tls.mode should be reencrypt (or passthrough).
+api:
+  tls:
+    enabled: false
+    existingSecret: ""              # kubernetes.io/tls; defaults to the Vault-synced one when set
+    port: 8443
+
+# --- the cluster the KDPS view drives -------------------------------------------------------
+# The view authenticates with an OpenShift login (API URL + user, entered once in the UI) or an
+# uploaded kubeconfig. Both are stored by Ambari: the OpenShift login in the database, the
+# kubeconfig as a file under /var/lib/ambari-server — which is why persistence is on by default.
+#
+# The claim is mounted on two sub-paths rather than over /var/lib/ambari-server as a whole:
+#   keys/                        the master key and credential store, which encrypt values in
+#                                the database and so must not be regenerated on every restart
+#   resources/views/k8s-view-data/  the view's working directory: the uploaded kubeconfig and cache
+# Everything else under /var/lib/ambari-server belongs to the image and is refreshed by an upgrade.
+persistence:
+  enabled: true
+  existingClaim: ""
+  storageClass: ""
+  accessModes: [ReadWriteOnce]
+  size: 5Gi
+
+# Extra view jars dropped into /opt/ambari-views and installed at start-up, so the KDPS view can
+# be updated without rebuilding the image.
+views:
+  existingClaim: ""
+  configMap: ""
+
+service:
+  type: ClusterIP
+  port: 8080
+  httpsPort: 8443
+  annotations: {}
+
+# OpenShift Route. Ingress (below) is used instead on vanilla Kubernetes.
+route:
+  enabled: true
+  host: ""                          # required when enabled; also names the TLS Secret by default
+  annotations: {}
+  tls:
+    # edge          — router terminates TLS with its own default certificate
+    # edgeWithCert  — router terminates TLS with OUR certificate, read from a Secret
+    # passthrough / reencrypt — only meaningful once Ambari serves HTTPS itself
+    mode: edge
+    insecureEdgeTerminationPolicy: Redirect
+    # The Secret carrying tls.crt / tls.key. Empty means "<route host>-tls", so the certificate is
+    # named after the route it serves. Referenced through the Route's externalCertificate field
+    # (OpenShift >= 4.16), which keeps the certificate OUT of the rendered manifest — so Argo CD
+    # never sees it and never diffs on it.
+    secretName: ""
+    # externalCertificate requires the ingress router to be allowed to read that Secret.
+    grantRouterAccess: true
+    # reencrypt only: the CA the router should verify Ambari's own certificate against. Leave empty
+    # and use passthrough when the certificate is self-signed or privately issued.
+    destinationCACertificate: ""
+
+ingress:
+  enabled: false
+  className: ""
+  host: ""
+  path: /
+  pathType: ImplementationSpecific
+  annotations: {}
+  tls:
+    enabled: true
+    secretName: ""                  # defaults to "<ingress host>-tls"
+
+# --- Vault ----------------------------------------------------------------------------------
+# The database password and the route certificate, read out of Vault through the Secrets Store CSI
+# driver. Turning either one on is what enables the CSI volume; global.vault.* says where Vault is.
+# Both are synced into ordinary Kubernetes Secrets (secretObjects) rather than only mounted, so the
+# Deployment and the Route consume them the same way whether they came from Vault or not.
+#
+# Two things the cluster has to provide before this works:
+#
+#  1. The namespace must allow the driver's inline volume. Without this the Deployment never even
+#     creates a ReplicaSet, and the only sign is a ReplicaSetCreateError on the Deployment:
+#       oc label ns <namespace> \
+#         pod-security.kubernetes.io/enforce=privileged \
+#         security.openshift.io/scc.podSecurityLabelSync=false
+#
+#  2. Vault must have a Kubernetes auth role bound to this release's ServiceAccount, granting read
+#     on the paths below.
+#
+# Note also that a Secret produced this way lives only as long as a pod that mounts it. The Route
+# is put in a later Argo CD sync wave for that reason; see templates/route.yaml.
+vault:
+  csi:
+    masterKey:
+      enabled: false
+      path: ""                      # e.g. secret/data/kdps/ambari/master-key
+      key: master-key               # key inside the Vault secret
+      secretName: ""                # defaults to "<release>-master-key"
+    apiCert:
+      enabled: false
+      path: ""                      # e.g. secret/data/kdps/ambari/api-cert
+      certKey: tls.crt
+      keyKey: tls.key
+      secretName: ""                # defaults to "<release>-api-tls"
+    database:
+      enabled: false
+      path: ""                      # e.g. secret/data/kdps/ambari/db
+      passwordKey: password         # key inside the Vault secret
+      secretName: ""                # defaults to "<release>-db"
+    routeCert:
+      enabled: false
+      path: ""                      # e.g. secret/data/kdps/ambari/route-cert
+      certKey: tls.crt
+      keyKey: tls.key
+      # the Secret is named after the route (route.tls.secretName)
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+resources:
+  requests:
+    cpu: 500m
+    memory: 2Gi
+  limits:
+    cpu: "2"
+    memory: 4Gi
+
+# Ambari's Python calls getpwuid(), and OpenShift runs the pod under a random UID that has no
+# /etc/passwd entry. The init container writes one into a copy of /etc/passwd that the server then
+# mounts, so the chart works under restricted-v2 without the image having to be rebuilt.
+passwdShim:
+  enabled: true
+
+podSecurityContext: {}
+securityContext:
+  runAsNonRoot: true
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop: [ALL]
+  seccompProfile:
+    type: RuntimeDefault
+
+livenessProbe:
+  initialDelaySeconds: 180
+  periodSeconds: 20
+  timeoutSeconds: 5
+  failureThreshold: 6
+readinessProbe:
+  initialDelaySeconds: 60
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 30
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+podAnnotations: {}
+podLabels: {}
+extraEnv: []
+extraVolumes: []
+extraVolumeMounts: []

@@ -1,0 +1,222 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "ambari.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "ambari.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  replicas: 1
+  strategy:
+    # One Ambari, one database, one RWO volume: never run two at once.
+    type: Recreate
+  selector:
+    matchLabels: {{- include "ambari.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "ambari.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}{{- toYaml . | nindent 8 }}{{- end }}
+      annotations:
+        checksum/db: {{ include (print $.Template.BasePath "/secret-db.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}{{- toYaml . | nindent 8 }}{{- end }}
+    spec:
+      serviceAccountName: {{ include "ambari.serviceAccountName" . }}
+      {{- include "ambari.imagePullSecrets" . | nindent 6 }}
+      {{- with .Values.podSecurityContext }}
+      securityContext: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if or .Values.passwdShim.enabled .Values.api.tls.enabled }}
+      initContainers:
+        {{- if .Values.passwdShim.enabled }}
+        # OpenShift runs the pod under a random UID with no /etc/passwd entry, and Ambari's Python
+        # calls getpwuid() early in start-up. Copy /etc/passwd, add this UID, and let the server
+        # mount the copy — no image change, and a no-op when the UID already resolves.
+        - name: passwd-shim
+          image: {{ include "ambari.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+              cp /etc/passwd /shim/passwd
+              if ! getent passwd "$(id -u)" >/dev/null 2>&1; then
+                echo "ambari:x:$(id -u):0:Ambari:/var/lib/ambari-server:/sbin/nologin" >> /shim/passwd
+                echo "added a passwd entry for uid $(id -u)"
+              fi
+          securityContext: {{- toYaml .Values.securityContext | nindent 12 }}
+          volumeMounts:
+            - name: passwd-shim
+              mountPath: /shim
+        {{- end }}
+        {{- if .Values.api.tls.enabled }}
+        # Ambari wants a PKCS12 keystore and the password beside it in a plain file, which is not
+        # the shape a kubernetes.io/tls Secret has. Convert it here rather than asking whoever
+        # issues the certificate to produce something only Ambari uses. The password is generated
+        # per pod and never leaves this emptyDir; the same file is the truststore, which is what
+        # Ambari's own defaults already assume.
+        - name: https-keystore
+          image: {{ include "ambari.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+              {{- if include "ambari.api.vaultCert" . }}
+              crt=/vault/secrets/api-tls-crt; key=/vault/secrets/api-tls-key
+              {{- else }}
+              crt=/tls/tls.crt; key=/tls/tls.key
+              {{- end }}
+              pass="$(openssl rand -hex 24)"
+              openssl pkcs12 -export \
+                -in "$crt" -inkey "$key" \
+                -name ambari -out /https/https.keystore.p12 \
+                -password "pass:${pass}"
+              printf '%s' "${pass}" > /https/https.pass.txt
+              chmod 600 /https/https.keystore.p12 /https/https.pass.txt
+              echo "built the https keystore from $(openssl x509 -noout -subject -in "$crt")"
+          securityContext: {{- toYaml .Values.securityContext | nindent 12 }}
+          volumeMounts:
+            {{- if include "ambari.api.vaultCert" . }}
+            # Read straight out of the CSI mount. Going through a synced Secret would mean the pod
+            # needs a Secret that only exists once the pod is running: kubelet retries its way out
+            # of that, but only after a FailedMount and a delay, and only by luck.
+            - name: vault
+              mountPath: /vault/secrets
+              readOnly: true
+            {{- else }}
+            - name: api-tls
+              mountPath: /tls
+              readOnly: true
+            {{- end }}
+            - name: https-keystore
+              mountPath: /https
+        {{- end }}
+      {{- end }}
+      containers:
+        - name: ambari
+          image: {{ include "ambari.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext: {{- toYaml .Values.securityContext | nindent 12 }}
+          env:
+            - name: AMBARI_DB_HOST
+              value: {{ required "database.host is required" .Values.database.host | quote }}
+            - name: AMBARI_DB_PORT
+              value: {{ .Values.database.port | quote }}
+            - name: AMBARI_DB_NAME
+              value: {{ .Values.database.name | quote }}
+            - name: AMBARI_DB_USER
+              value: {{ .Values.database.user | quote }}
+            - name: AMBARI_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "ambari.db.secretName" . }}
+                  key: {{ include "ambari.db.passwordKey" . }}
+            - name: AMBARI_SECURITY_MASTER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "ambari.masterKey.secretName" . }}
+                  key: {{ include "ambari.masterKey.secretKey" . }}
+            - name: AMBARI_EXTRA_PROPERTIES
+              value: |-
+{{ include "ambari.extraProperties" . | indent 16 }}
+            {{- with .Values.extraEnv }}{{- toYaml . | nindent 12 }}{{- end }}
+          ports:
+            - name: http
+              containerPort: 8080
+            - name: https
+              containerPort: 8443
+          livenessProbe:
+            tcpSocket:
+              port: {{ include "ambari.serverPortName" . }}
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
+          readinessProbe:
+            # Ambari serves its login page unauthenticated; the API would answer 401 and never
+            # become ready.
+            httpGet:
+              path: /
+              port: {{ include "ambari.serverPortName" . }}
+              scheme: {{ if .Values.api.tls.enabled }}HTTPS{{ else }}HTTP{{ end }}
+            {{- toYaml .Values.readinessProbe | nindent 12 }}
+          resources: {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            {{- if .Values.passwdShim.enabled }}
+            - name: passwd-shim
+              mountPath: /etc/passwd
+              subPath: passwd
+            {{- end }}
+            {{- if .Values.persistence.enabled }}
+            # Only the view's own working directory is persisted -- the uploaded kubeconfig and its
+            # cache. Mounting the whole of /var/lib/ambari-server would hide the image's content
+            # there, including ambari-env.sh, which is what puts ambari_commons on PYTHONPATH, and
+            # would freeze the stacks and view jars at whatever the first image shipped.
+            - name: data
+              mountPath: /var/lib/ambari-server/resources/views/k8s-view-data
+              subPath: k8s-view-data
+            {{- end }}
+            {{- if or .Values.views.existingClaim .Values.views.configMap }}
+            - name: views
+              mountPath: /opt/ambari-views
+              readOnly: true
+            {{- end }}
+            {{- if .Values.api.tls.enabled }}
+            - name: https-keystore
+              mountPath: /opt/ambari-https
+              readOnly: true
+            {{- end }}
+            {{- if include "ambari.vault.csiEnabled" . }}
+            - name: vault
+              mountPath: /vault/secrets
+              readOnly: true
+            {{- end }}
+            {{- with .Values.extraVolumeMounts }}{{- toYaml . | nindent 12 }}{{- end }}
+      volumes:
+        {{- if .Values.passwdShim.enabled }}
+        - name: passwd-shim
+          emptyDir: {}
+        {{- end }}
+        {{- if .Values.persistence.enabled }}
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ .Values.persistence.existingClaim | default (include "ambari.fullname" .) }}
+        {{- end }}
+        {{- if .Values.views.existingClaim }}
+        - name: views
+          persistentVolumeClaim:
+            claimName: {{ .Values.views.existingClaim }}
+        {{- else if .Values.views.configMap }}
+        - name: views
+          configMap:
+            name: {{ .Values.views.configMap }}
+        {{- end }}
+        {{- if .Values.api.tls.enabled }}
+        {{- if not (include "ambari.api.vaultCert" .) }}
+        - name: api-tls
+          secret:
+            secretName: {{ include "ambari.api.tlsSecretName" . }}
+        {{- end }}
+        - name: https-keystore
+          emptyDir: {}
+        {{- end }}
+        {{- if include "ambari.vault.csiEnabled" . }}
+        # Mounting the CSI volume is what makes the driver sync secretObjects into real Secrets.
+        - name: vault
+          csi:
+            driver: secrets-store.csi.k8s.io
+            readOnly: true
+            volumeAttributes:
+              secretProviderClass: {{ include "ambari.vault.secretProviderClassName" . }}
+        {{- end }}
+        {{- with .Values.extraVolumes }}{{- toYaml . | nindent 8 }}{{- end }}
