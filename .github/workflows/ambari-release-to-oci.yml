@@ -1,0 +1,132 @@
+name: Publish Apache Ambari to Clemlab OCI
+
+on:
+  workflow_dispatch: {}
+  push:
+    branches: [ main ]
+    paths:
+      - "charts/ambari/**"
+      - ".github/workflows/ambari-release-to-oci.yml"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: harbor
+    env:
+      OCI_REGISTRY: registry.clemlab.com
+      OCI_REPO: clemlabprojects/charts
+      ROBOT_USER: clemlabprojects+github.actions.clemlabprojects.trino-charts
+      CHART_DIR: charts/ambari
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.19.0
+
+      - name: Install yq
+        uses: mikefarah/yq@v4.48.1
+
+      - name: Extract chart name & version
+        id: meta
+        run: |
+          CHART_NAME=$(yq -r '.name' "${CHART_DIR}/Chart.yaml")
+          CHART_VERSION=$(yq -r '.version' "${CHART_DIR}/Chart.yaml")
+          echo "chart_name=${CHART_NAME}"       >> "$GITHUB_OUTPUT"
+          echo "chart_version=${CHART_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Chart: ${CHART_NAME}  Version: ${CHART_VERSION}"
+
+      - name: Login to Harbor OCI registry (via helm)
+        run: |
+          printf '%s' '${{ secrets.ACTIONS_CLEMLABPROJECTS }}' \
+            | helm registry login 'registry.clemlab.com' \
+                --username 'robot$clemlabprojects+github.actions.clemlabprojects.trino-charts' \
+                --password-stdin
+
+      - name: Helm dependency update (if any)
+        run: helm dependency update "${CHART_DIR}"
+
+      - name: Lint chart
+        run: helm lint "${CHART_DIR}"
+
+      # The chart has to render for both targets it claims to support, and a template that only
+      # ever sees its defaults is a template nobody has tested.
+      - name: Render the shapes the chart claims to support
+        run: |
+          set -euo pipefail
+          COMMON="--set database.host=postgres.example.svc --set database.existingSecret=client-pg \
+                  --set masterKey.existingSecret=ambari-master-key"
+          echo "--- OpenShift: external database, Route with our own certificate ---"
+          helm template ambari "${CHART_DIR}" ${COMMON} \
+            --set route.host=ambari.apps.example.com --set route.tls.mode=edgeWithCert >/dev/null
+          echo "--- OpenShift: Ambari terminates TLS, the router passes it through ---"
+          helm template ambari "${CHART_DIR}" ${COMMON} \
+            --set api.tls.enabled=true --set api.tls.existingSecret=ambari-api-tls \
+            --set route.host=ambari.apps.example.com --set route.tls.mode=passthrough >/dev/null
+          echo "--- OpenShift: every secret out of Vault ---"
+          helm template ambari "${CHART_DIR}" \
+            --set database.host=postgres.example.svc \
+            --set global.vault.enabled=true \
+            --set global.vault.address=https://vault.vault-csi.svc:8200 \
+            --set global.vault.auth.kubernetes.role=ambari \
+            --set vault.csi.masterKey.enabled=true \
+            --set vault.csi.masterKey.path=secret/data/kdps/ambari/master-key \
+            --set vault.csi.database.enabled=true \
+            --set vault.csi.database.path=secret/data/kdps/ambari/db \
+            --set vault.csi.apiCert.enabled=true \
+            --set vault.csi.apiCert.path=secret/data/kdps/ambari/api-cert \
+            --set api.tls.enabled=true \
+            --set route.host=ambari.apps.example.com --set route.tls.mode=passthrough >/dev/null
+          echo "--- vanilla Kubernetes: Ingress instead of a Route ---"
+          helm template ambari "${CHART_DIR}" \
+            --set database.host=postgres.example.svc --set database.password=changeme \
+            --set masterKey.value=a-master-key \
+            --set route.enabled=false \
+            --set ingress.enabled=true --set ingress.host=ambari.example.com >/dev/null
+          echo "--- and the combinations the chart must refuse ---"
+          ! helm template ambari "${CHART_DIR}" \
+            --set database.host=postgres.example.svc --set database.password=changeme \
+            --set route.host=ambari.apps.example.com >/dev/null 2>&1 \
+            && echo "refused: no master key"
+          ! helm template ambari "${CHART_DIR}" ${COMMON} \
+            --set api.tls.enabled=true --set api.tls.existingSecret=c \
+            --set route.host=ambari.apps.example.com --set route.tls.mode=edge >/dev/null 2>&1 \
+            && echo "refused: HTTPS server behind an edge route"
+
+      - name: Package chart
+        run: |
+          mkdir -p dist
+          helm package "${CHART_DIR}" -d dist
+
+      # Docker login helps some helm push/pull edge cases with Harbor
+      - name: Docker login to Harbor (works for Helm too)
+        uses: docker/login-action@v3
+        with:
+          registry: registry.clemlab.com
+          username: 'robot$clemlabprojects+github.actions.clemlabprojects.trino-charts'
+          password: ${{ secrets.ACTIONS_CLEMLABPROJECTS }}
+
+      - name: Push package to OCI
+        run: |
+          for TGZ in dist/*.tgz; do
+            echo "Pushing $TGZ to oci://${{ env.OCI_REGISTRY }}/${{ env.OCI_REPO }}"
+            helm push "$TGZ" "oci://${{ env.OCI_REGISTRY }}/${{ env.OCI_REPO }}"
+          done
+
+      - name: Verify by pulling the just-pushed version
+        run: |
+          set -euo pipefail
+          helm pull "oci://${{ env.OCI_REGISTRY }}/${{ env.OCI_REPO }}/${{ steps.meta.outputs.chart_name }}" \
+            --version "${{ steps.meta.outputs.chart_version }}" --untar
+          ls -la "./${{ steps.meta.outputs.chart_name }}"
+
+      - name: Print final pull command (for logs)
+        run: |
+          echo "helm pull oci://${{ env.OCI_REGISTRY }}/${{ env.OCI_REPO }}/${{ steps.meta.outputs.chart_name }} --version ${{ steps.meta.outputs.chart_version }}"
