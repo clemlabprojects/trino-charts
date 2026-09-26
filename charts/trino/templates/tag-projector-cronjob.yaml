@@ -1,0 +1,83 @@
+{{- /*
+KDPS Atlas tag projector. Copies Atlas-originated Ranger tag associations from the component (Hive)
+service onto the Trino service so tag-based Ranger policies apply to Trino. Only meaningful when the
+Trino coordinator enforces Ranger, so it is gated on accessControl.type=ranger as well as the toggle.
+*/ -}}
+{{- define "trino.tagProjector.podSpec" -}}
+restartPolicy: Never
+{{- with .Values.imagePullSecrets }}
+imagePullSecrets: {{- toYaml . | nindent 2 }}
+{{- end }}
+containers:
+  - name: tag-projector
+    image: {{ include "trino.image" (dict "root" . "image" .Values.tagSync.image) }}
+    imagePullPolicy: {{ .Values.tagSync.image.pullPolicy }}
+    env:
+      - name: RANGER_URL
+        value: {{ required "tagSync.ranger.url is required (KDPS resolves it from the context)" .Values.tagSync.ranger.url | quote }}
+      - name: TRINO_SERVICE
+        value: {{ required "ranger.serviceName is required when tagSync.enabled" .Values.ranger.serviceName | quote }}
+      - name: SOURCE_TYPES
+        value: {{ .Values.tagSync.sourceTypes | quote }}
+      - name: CATALOG_MAP
+        value: {{ .Values.tagSync.catalogMap | toJson | quote }}
+      - name: DRY_RUN
+        value: {{ .Values.tagSync.dryRun | quote }}
+      - name: RANGER_USER
+        valueFrom:
+          secretKeyRef:
+            name: {{ required "tagSync.ranger.existingSecret is required" .Values.tagSync.ranger.existingSecret }}
+            key: {{ .Values.tagSync.ranger.userKey }}
+      - name: RANGER_PW
+        valueFrom:
+          secretKeyRef:
+            name: {{ .Values.tagSync.ranger.existingSecret }}
+            key: {{ .Values.tagSync.ranger.passwordKey }}
+    resources: {{- toYaml .Values.tagSync.resources | nindent 6 }}
+    securityContext:
+      allowPrivilegeEscalation: false
+      runAsNonRoot: true
+      capabilities: { drop: [ALL] }
+      seccompProfile: { type: RuntimeDefault }
+{{- end -}}
+{{- if and .Values.tagSync.enabled (eq .Values.accessControl.type "ranger") }}
+{{- $ts := .Values.tagSync }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "trino.fullname" . }}-tag-projector
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "trino.labels" . | nindent 4 }}
+spec:
+  schedule: {{ $ts.schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        metadata:
+          labels: {{- include "trino.labels" . | nindent 12 }}
+        spec:
+          {{- include "trino.tagProjector.podSpec" . | nindent 10 }}
+{{- if $ts.runOnInstall }}
+---
+# One-shot run at install/upgrade so tags are projected immediately, without waiting for the first
+# scheduled tick. Ordinary Job (not a hook) so it does not block the release and its logs persist.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "trino.fullname" . }}-tag-projector-init-{{ .Release.Revision }}
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "trino.labels" . | nindent 4 }}
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata:
+      labels: {{- include "trino.labels" . | nindent 8 }}
+    spec:
+      {{- include "trino.tagProjector.podSpec" . | nindent 6 }}
+{{- end }}
+{{- end }}

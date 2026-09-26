@@ -265,6 +265,37 @@ ranger:
         certKey: tls.crt
         keyKey: tls.key
 
+# --- Atlas tag projection (tag-based policies for Trino on CDP/ODP) -----------------------------
+# On CDP/ODP, Atlas classifications flow to Ranger's tag store scoped to the COMPONENT service
+# (Hive), and the Trino plugin only reads resources scoped to its OWN service — so tag-based
+# masking/row-filter/access policies never reach Trino out of the box. This CronJob copies the tag
+# associations from the component service onto the Trino service, so those policies apply to Trino.
+#
+# Everything is resolved from Ranger at run time: the tag service is found via the Trino repo's
+# tagService, and the source Hive service is the one sharing that tag service — no repo name
+# (cm_hive/cm_tag or otherwise) is assumed. KDPS fills url/serviceName/credentials from the context;
+# the operator only turns this on. Requires accessControl.type=ranger.
+tagSync:
+  enabled: false
+  image:
+    registry: ""                    # falls back to global.imageRegistry
+    repository: kdps-tag-projector
+    tag: "0.1.0"
+    pullPolicy: IfNotPresent
+  schedule: "*/5 * * * *"           # cadence; piggybacks on Atlas->tagsync's own period
+  runOnInstall: true                # also run once at install/upgrade for immediate population
+  sourceTypes: "hive"              # component service types to project from
+  catalogMap: {}                    # {sourceServiceName: trinoCatalog}; default: single hive -> "hive"
+  dryRun: false
+  ranger:
+    url: ""                         # Ranger admin URL; KDPS resolves from the context
+    existingSecret: ""              # Secret with the tag-write account (reuse the tagsync account)
+    userKey: user
+    passwordKey: password
+  resources:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits:   { cpu: 250m, memory: 128Mi }
+
 server:
   workers: 2
   node:
