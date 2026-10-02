@@ -75,6 +75,9 @@ data:
     {{- range $configValue := .Values.additionalConfigProperties }}
     {{ $configValue }}
     {{- end }}
+    {{- if .Values.dynamicCatalogs.enabled }}
+    catalog.management=dynamic
+    {{- end }}
     {{- if $workerJmx.enabled }}
     jmx.rmiregistry.port={{- $workerJmx.registryPort }}
     jmx.rmiserver.port={{- $workerJmx.serverPort }}

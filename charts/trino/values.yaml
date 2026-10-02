@@ -703,6 +703,24 @@ eventListenerProperties: []
 #  - custom-property2=custom-value2
 # ```
 
+# dynamicCatalogs -- Opt-in Trino dynamic catalog management (CREATE/DROP CATALOG at runtime, no
+# restart). Default OFF on purpose: with it on, the catalog STORE becomes the catalog source, so an
+# unseeded store silently drops every catalog in `catalogs`. When enabled the chart therefore:
+#   * sets catalog.management=dynamic on coordinator AND workers (workers receive catalogs per task),
+#   * renders etc/catalog-store.properties pointing the file store at a writable emptyDir
+#     (Trino reads the store's own properties from THAT file, not config.properties — putting
+#     catalog.config-dir in config.properties is rejected at startup),
+#   * seeds that dir from the catalog ConfigMap in an init container, so `catalogs` and runtime
+#     CREATE CATALOG coexist.
+# The emptyDir is wiped on pod restart and re-seeded from the ConfigMap: catalogs created only at
+# runtime do not survive. Persist them by writing them into `catalogs` (what KDPS does) — the
+# ConfigMap is the durable truth, the store is the no-restart cache.
+dynamicCatalogs:
+  enabled: false
+  storeDir: /opt/trino/catalog-store   # writable; deliberately NOT under node.dataDir (whose etc/ is
+                                       # symlinked by the launcher onto the read-only config dir)
+  readOnly: false                      # true = catalogs listed/loaded but CREATE/DROP refused
+
 catalogs:
   tpch: |
     connector.name=tpch

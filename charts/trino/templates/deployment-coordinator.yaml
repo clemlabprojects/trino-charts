@@ -209,6 +209,10 @@ spec:
         {{- end }}
         {{ include "trino.truststore.volume" . | nindent 8 }}
         {{ include "trino.vault.volume" . | nindent 8 }}
+        {{- if .Values.dynamicCatalogs.enabled }}
+        - name: catalog-store
+          emptyDir: {}
+        {{- end }}
         {{- with .Values.coordinator.additionalVolumes }}
         {{- tpl (. | toYaml) $ | nindent 8 }}
         {{- end }}
@@ -230,8 +234,24 @@ spec:
               - key: {{ default "service.keytab" $kerb.keytab.secretDataKey }}
                 path: {{ default "service.keytab" $kerb.keytab.secretDataKey }}
         {{- end }}
-      {{- if or .Values.initContainers.coordinator (and .Values.server.config.https.keystore.secretName .Values.server.config.https.keystore.passwordSecretName .Values.server.config.https.enabled) (eq (include "trino.hadoopConf.groupMapping.enabled" .) "true") }}
+      {{- if or .Values.dynamicCatalogs.enabled .Values.initContainers.coordinator (and .Values.server.config.https.keystore.secretName .Values.server.config.https.keystore.passwordSecretName .Values.server.config.https.enabled) (eq (include "trino.hadoopConf.groupMapping.enabled" .) "true") }}
       initContainers:
+      {{- if .Values.dynamicCatalogs.enabled }}
+        # Seed the writable catalog store from the catalog ConfigMap so the chart's `catalogs` and
+        # runtime CREATE CATALOG coexist (under dynamic management the store IS the catalog source).
+        - name: init-catalog-store
+          image: {{ include "trino.busybox.image" (dict "root" .) }}
+          imagePullPolicy: {{ default "IfNotPresent" .Values.busyboxImage.pullPolicy }}
+          command: ["sh","-c","mkdir -p {{ .Values.dynamicCatalogs.storeDir }} && cp /etc/trino/catalog/*.properties {{ .Values.dynamicCatalogs.storeDir }}/ 2>/dev/null; echo seeded: $(ls {{ .Values.dynamicCatalogs.storeDir }})"]
+          volumeMounts:
+            {{- if or .Values.catalogs .Values.additionalCatalogs .Values.coordinator.additionalCatalogs }}
+            - name: catalog-volume
+              mountPath: /etc/trino/catalog
+              readOnly: true
+            {{- end }}
+            - name: catalog-store
+              mountPath: {{ .Values.dynamicCatalogs.storeDir }}
+      {{- end }}
       {{- if $rangerEnabled }}
         - name: init-ranger-dirs
           image: {{ include "trino.busybox.image" (dict "root" .) }}
@@ -415,6 +435,10 @@ spec:
             - name: keytab-secret
               mountPath: {{ default "/etc/security/keytabs" $kerb.keytab.mountPath }}
               readOnly: true
+            {{- end }}
+            {{- if .Values.dynamicCatalogs.enabled }}
+            - name: catalog-store
+              mountPath: {{ .Values.dynamicCatalogs.storeDir }}
             {{- end }}
             {{- with .Values.coordinator.additionalVolumeMounts }}
             {{- . | toYaml | nindent 12 }}
