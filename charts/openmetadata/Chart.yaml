@@ -2,7 +2,7 @@ apiVersion: v2
 name: openmetadata
 description: Open-source metadata management platform — data discovery, lineage, quality and governance
 type: application
-version: 1.13.24
+version: 1.13.31
 appVersion: "1.12.6"
 icon: https://open-metadata.org/favicon.ico
 home: https://open-metadata.org
@@ -30,6 +30,6 @@ dependencies:
     condition: opensearch.enabled
   - name: openmetadata-dependencies
     alias: dependencies
-    version: "1.12.6"
+    version: "1.12.9"
     repository: oci://registry.clemlab.com/clemlabprojects/charts
     condition: dependencies.enabled

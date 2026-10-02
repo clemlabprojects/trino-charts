@@ -148,6 +148,16 @@ ingress:
 route:
   enabled: true
 
+# NetworkPolicy. The policy always restricts INGRESS. Egress is UNRESTRICTED by default
+# (ingress-only) so the service reaches DNS + every backend on any CNI without a hand-maintained
+# allowlist — the recurring source of egress breakage. Set strictEgress=true only on clusters that
+# mandate egress lockdown; it then restricts egress to the complete KDPS backend allowlist in
+# templates/networkpolicy.yaml. extraIngress/extraEgress append site-specific rules.
+networkPolicy:
+  strictEgress: false
+  extraIngress: []
+  extraEgress: []
+
 serviceMonitor:
   enabled: false
   interval: "30s"
@@ -423,6 +433,27 @@ dependencies:
   airflow:
     enabled: true
 
+    # Run the DB migrate + create-user Jobs as PLAIN manifest resources, not as
+    # helm post-install hooks (the airflow-chart default `useHelmHooks: true`).
+    #
+    # With hooks, the Job carries `helm.sh/hook: post-install,post-upgrade`, so
+    # helm only runs it AFTER a `--wait` install has waited for the manifest
+    # resources to become Ready. But the airflow app pods (scheduler/api-server/
+    # triggerer/dag-processor) each have a `wait-for-airflow-migrations` init
+    # that blocks until the migrations are applied — by that very hook. So under
+    # `--wait` (the KDPS view, ArgoCD, Flux, `helm install --wait`) the two
+    # deadlock: helm waits for the app pods, the app pods wait for the hook, the
+    # hook waits for helm -> `context deadline exceeded` -> release failed, and
+    # the hook Job is cleaned up (`before-hook-creation`) so migrations NEVER
+    # apply and the app pods crash-loop forever. As plain manifest Jobs they run
+    # concurrently with the app pods; helm --wait waits for the Job to complete,
+    # migrations apply, the init passes. ttlSecondsAfterFinished (300) auto-cleans
+    # the completed Job so re-installs don't collide on its fixed name.
+    migrateDatabaseJob:
+      useHelmHooks: false
+    createUserJob:
+      useHelmHooks: false
+
     # Airflow gets its OWN bundled postgres (separate from the OM main chart's
     # `openmetadata-postgresql`). Upstream openmetadata-dependencies disables
     # this sub-chart AND defaults metadataConnection.host to a literal "mysql"
@@ -482,6 +513,13 @@ dependencies:
         persistence:
           enabled: true
           size: 10Gi
+      # The clemlab-repackaged postgresql 17.0.1 chart ships networkpolicy
+      # templates that read `.Values.networkPolicy.enabled` but its values.yaml
+      # has no `networkPolicy:` block (stripped in the repackage) -> nil pointer
+      # at render time. Disable the sub-chart's own NetworkPolicy: KDPS manages
+      # network policy at the OM chart level (templates/networkpolicy.yaml).
+      networkPolicy:
+        enabled: false
 
     data:
       # Mirrors the airflow-postgres credentials above. Set host explicitly to
@@ -672,11 +710,18 @@ dependencies:
       # KDPS mints the OM ingestion principal (oma-ing-<ns>@<realm>) + keytab into this
       # Secret via the kerberos-keytab webhook (driven by the OM deployments' needs-keytab
       # annotation). The airflow pods mount it read-only and kinit with it. optional:true
-      # so non-kerberized installs still start. Default name matches release "openmetadata";
-      # the wizard can override secretName for other release names.
+      # so non-kerberized installs still start.
+      #
+      # The secretName tracks global.security.kerberos.keytab.secretName — the SAME value the OM
+      # server + native ingestion deployments consume. For a MANAGED (same-realm) deploy KDPS sets
+      # it to "<release>-ingestion-keytab" (the auto-minted Secret); for an EXTERNAL/cross-realm
+      # deploy the externalServiceTargets applyTo repoints it at the operator-uploaded keytab
+      # Secret (which must carry key "service.keytab"). Falls back to "<release>-ingestion-keytab"
+      # when the global value is unset (non-kerberized). This value is templated at render time —
+      # the airflow subchart tpl's .Values.volumes, so the expression below is evaluated.
       - name: ingestion-keytab
         secret:
-          secretName: openmetadata-ingestion-keytab
+          secretName: '{{ .Values.global.security.kerberos.keytab.secretName | default (printf "%s-ingestion-keytab" .Release.Name) }}'
           optional: true
           items:
             - key: service.keytab
@@ -704,6 +749,16 @@ dependencies:
         - name: kinit-bootstrap
           image: registry.clemlab.com/clemlabprojects/openmetadata-ingestion:1.12.6.1.3.2.0-24
           imagePullPolicy: IfNotPresent
+          # This init container runs the kinit — so it MUST see the KDPS-staged krb5.conf (realm ->
+          # KDC map). The base container gets KRB5_CONFIG + the krb5-conf mount from the pod env/
+          # volumeMounts, but an extraInitContainer inherits neither, so without these it reads the
+          # image-default /etc/krb5.conf and dies with "Cannot find KDC for realm" — the ingestion
+          # task pod then never authenticates and no metadata is ingested.
+          env:
+            - name: KRB5_CONFIG
+              value: /etc/krb5-conf-d/krb5.conf
+            - name: KRB5CCNAME
+              value: /var/run/krb5/krb5cc_om
           command:
             - /bin/sh
             - -c
@@ -720,6 +775,9 @@ dependencies:
             - name: ingestion-keytab
               mountPath: /etc/security/keytabs
               readOnly: true
+            - name: krb5-conf
+              mountPath: /etc/krb5-conf-d
+              readOnly: true
             - name: krb5-cache
               mountPath: /var/run/krb5
     scheduler:
@@ -730,6 +788,13 @@ dependencies:
         - name: kinit-renew
           image: registry.clemlab.com/clemlabprojects/openmetadata-ingestion:1.12.6.1.3.2.0-24
           imagePullPolicy: IfNotPresent
+          # Same as kinit-bootstrap: this sidecar runs kinit, so it needs KRB5_CONFIG + the
+          # krb5-conf mount (not inherited by extraContainers) or it can't find the KDC.
+          env:
+            - name: KRB5_CONFIG
+              value: /etc/krb5-conf-d/krb5.conf
+            - name: KRB5CCNAME
+              value: /var/run/krb5/krb5cc_om
           command:
             - /bin/sh
             - -c
@@ -746,6 +811,9 @@ dependencies:
           volumeMounts:
             - name: ingestion-keytab
               mountPath: /etc/security/keytabs
+              readOnly: true
+            - name: krb5-conf
+              mountPath: /etc/krb5-conf-d
               readOnly: true
             - name: krb5-cache
               mountPath: /var/run/krb5

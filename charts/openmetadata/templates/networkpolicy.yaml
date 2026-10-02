@@ -1,8 +1,18 @@
 {{/*
-Network policy: allow ingress from the ingress controller and from within the
-namespace; allow egress to MySQL, OpenSearch, and the Kerberos KDC (if enabled).
-Tighten as needed for your network topology.
+KDPS NetworkPolicy.
+
+DEFAULT = INGRESS-ONLY. Egress is left UNRESTRICTED so the service reaches cluster DNS and every
+backend it may integrate with (Hive / Ranger / Atlas / HDFS / Kerberos KDC / OIDC / remote Ambari)
+on ANY CNI, with no hand-maintained per-integration allowlist to forget or get wrong. Egress
+allowlisting was the recurring source of "works on cluster A, silently blocked on cluster B"
+breakage (OVN-Kubernetes drops peer-less rules; other CNIs don't enforce egress at all).
+
+Set `networkPolicy.strictEgress: true` ONLY on clusters that mandate egress lockdown. It then
+restricts egress to the complete KDPS backend allowlist below (in-cluster deps + DNS + the standard
+backend ports), every rule with an explicit `to` peer so OVN honors it. This is a bounded set that
+covers all KDPS integrations; widen `networkPolicy.extraEgress` if a site adds a non-standard one.
 */}}
+{{- $strict := (.Values.networkPolicy | default dict).strictEgress | default false -}}
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -16,10 +26,12 @@ spec:
       {{- include "openmetadata.selectorLabels" . | nindent 6 }}
   policyTypes:
     - Ingress
+    {{- if $strict }}
     - Egress
+    {{- end }}
 
   ingress:
-    # Allow traffic from ingress controller namespace
+    # Allow traffic from ingress controller namespace (nginx on k8s, router on OpenShift)
     - from:
         - namespaceSelector:
             matchLabels:
@@ -42,71 +54,80 @@ spec:
           port: {{ .Values.openmetadata.config.port }}
         - protocol: TCP
           port: {{ .Values.openmetadata.config.adminPort }}
+  {{- with (.Values.networkPolicy | default dict).extraIngress }}
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
 
+  {{- if $strict }}
   egress:
-    # PostgreSQL
+    # --- In-cluster dependencies ---
     - to:
         - podSelector:
             matchLabels:
               app.kubernetes.io/name: postgresql
       ports:
-        - protocol: TCP
-          port: {{ .Values.openmetadata.config.database.port }}
-    # OpenSearch
+        - { protocol: TCP, port: {{ .Values.openmetadata.config.database.port }} }
     - to:
         - podSelector:
             matchLabels:
               app.kubernetes.io/name: opensearch
       ports:
-        - protocol: TCP
-          port: {{ .Values.openmetadata.config.elasticsearch.port }}
-    # DNS
-    - ports:
-        - protocol: UDP
-          port: 53
-        - protocol: TCP
-          port: 53
-    # OIDC / LDAP / external auth providers — allow HTTPS egress
-    {{/* Extract a non-default port from oidc.issuerUrl so JWKS fetch works when
-         Keycloak listens on something other than 443 (e.g. 8444). */}}
-    {{- $oidcIssuer := ((.Values.global).security).auth | default dict | dig "oidc" "issuerUrl" "" }}
-    {{- $oidcPort := "" }}
-    {{- if $oidcIssuer }}
-    {{- $parsed := urlParse $oidcIssuer }}
-    {{- $hostParts := splitList ":" ($parsed.host | default "") }}
-    {{- if eq (len $hostParts) 2 }}
-    {{- $candidate := index $hostParts 1 }}
-    {{- if and (ne $candidate "443") (ne $candidate "80") }}
-    {{- $oidcPort = $candidate }}
-    {{- end }}
-    {{- end }}
-    {{- end }}
-    - ports:
-        - protocol: TCP
-          port: 443
-        - protocol: TCP
-          port: 389
-        - protocol: TCP
-          port: 636
-        {{- if $oidcPort }}
-        - protocol: TCP
-          port: {{ $oidcPort | int }}
-        {{- end }}
-    # Airflow api-server (managed-apis). The OM server pod is isolated by this policy, so it
-    # needs explicit egress to deploy/trigger/query ingestion pipelines over
-    # PIPELINE_SERVICE_CLIENT_ENDPOINT (the airflow api-server, port 8080). Without it every
-    # pipeline call times out (~15s) → 400 → no ingestion DAG is generated → no federated data.
+        - { protocol: TCP, port: {{ .Values.openmetadata.config.elasticsearch.port }} }
     - to:
         - podSelector:
             matchLabels:
               tier: airflow
       ports:
-        - protocol: TCP
-          port: 8080
+        - { protocol: TCP, port: 8080 }
+    # --- Cluster DNS (explicit ipBlock peer REQUIRED for OVN to honor the rule) ---
+    - to:
+        - ipBlock: { cidr: 0.0.0.0/0 }
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+    # --- Complete KDPS backend allowlist (external, port-scoped, to anywhere) ---
+    # Covers every backend a KDPS service integrates with so strict mode does not miss a rule:
+    # OIDC/HTTPS(443), LDAP(389/636), Ranger(6080/6182), Atlas(21000/21443), HiveServer2(10000/10001),
+    # HMS(9083), HDFS RPC(8020/9000)+datanode(9864/9866)+NN-http/https(9870/9871), Trino(8080/8443),
+    # ZooKeeper(2181), Keycloak-custom(8444), Kerberos KDC(88 tcp/udp), remote Ambari(8080/8442/8443).
+    {{- $oidcIssuer := ((.Values.global).security).auth | default dict | dig "oidc" "issuerUrl" "" }}
+    {{- $oidcPort := "" }}
+    {{- if $oidcIssuer }}{{- $parsed := urlParse $oidcIssuer }}{{- $hp := splitList ":" ($parsed.host | default "") }}
+    {{- if eq (len $hp) 2 }}{{- $c := index $hp 1 }}{{- if and (ne $c "443") (ne $c "80") }}{{- $oidcPort = $c }}{{- end }}{{- end }}{{- end }}
+    - to:
+        - ipBlock: { cidr: 0.0.0.0/0 }
+      ports:
+        - { protocol: TCP, port: 443 }
+        - { protocol: TCP, port: 389 }
+        - { protocol: TCP, port: 636 }
+        - { protocol: TCP, port: 6080 }
+        - { protocol: TCP, port: 6182 }
+        - { protocol: TCP, port: 21000 }
+        - { protocol: TCP, port: 21443 }
+        - { protocol: TCP, port: 10000 }
+        - { protocol: TCP, port: 10001 }
+        - { protocol: TCP, port: 9083 }
+        - { protocol: TCP, port: 8020 }
+        - { protocol: TCP, port: 9000 }
+        - { protocol: TCP, port: 9864 }
+        - { protocol: TCP, port: 9866 }
+        - { protocol: TCP, port: 9870 }
+        - { protocol: TCP, port: 9871 }
+        - { protocol: TCP, port: 8443 }
+        - { protocol: TCP, port: 2181 }
+        - { protocol: TCP, port: 8444 }
+        - { protocol: TCP, port: 8442 }
+        {{- if $oidcPort }}
+        - { protocol: TCP, port: {{ $oidcPort | int }} }
+        {{- end }}
     {{- if .Values.global.security.kerberos.enabled }}
-    - ports:
-        - protocol: TCP
-          port: 88
-        - protocol: UDP
-          port: 88
+    - to:
+        - ipBlock: { cidr: 0.0.0.0/0 }
+      ports:
+        - { protocol: TCP, port: 88 }
+        - { protocol: UDP, port: 88 }
     {{- end }}
+  {{- with (.Values.networkPolicy | default dict).extraEgress }}
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- end }}

@@ -7,6 +7,6 @@ dependencies:
   version: 2.18.0
 - name: openmetadata-dependencies
   repository: oci://registry.clemlab.com/clemlabprojects/charts
-  version: 1.12.6
-digest: sha256:288bd91d1c131c2a53803f8025375b5f1ef2a5143ff00c15d122b0c16e170b9a
-generated: "2026-06-20T15:32:25.602615841Z"
+  version: 1.12.9
+digest: sha256:811ed7c4a3e80c9c8850c0cccb6216247716ed60973fa2a7e9bb63a5d3497f52
+generated: "2026-07-08T12:16:27.538709371Z"
