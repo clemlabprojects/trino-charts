@@ -918,9 +918,9 @@ atlasFederation:
   password: ""
 
   # The OM databaseService(s) where Atlas hive_table entities will be
-  # mapped. Use the OM internal DB-service name (e.g. trino-clemlab).
-  databaseServiceNames:
-    - trino-clemlab
+  # mapped (OM internal DB-service names). Empty = KDPS fills it with the
+  # Hive base-ingestion service of the release (hive-<cluster>).
+  databaseServiceNames: []
 
   # Ingestion schedule. Defaults to every 6h.
   schedule: "0 */6 * * *"
