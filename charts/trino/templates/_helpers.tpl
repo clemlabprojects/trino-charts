@@ -73,14 +73,20 @@ Create chart name and version as used by the chart label.
 {{/* Security profile wiring: map global.security.auth.* to Trino config/environment */}}
 {{- define "trino.security.env" -}}
 {{- $auth := .Values.global.security.auth | default dict -}}
+{{- $kdpsOn := eq (((.Values.kdps | default dict).serviceUser | default dict).enabled | toString) "true" -}}
+{{- if or $auth.mode $kdpsOn }}
 {{- if $auth.mode }}
 - name: TRINO_SECURITY_MODE
   value: {{ $auth.mode | quote }}
+{{- end }}
+{{- /* The internal shared secret is required as soon as ANY authenticator is on — including the
+       KDPS service user alone (no global auth mode). */}}
 - name: TRINO_INTERNAL_SHARED_SECRET
   valueFrom:
     secretKeyRef:
       name: {{ printf "%s-internal-communication" (include "trino.fullname" .) | quote }}
       key: shared-secret
+{{- if $auth.mode }}
 {{- if eq $auth.mode "ldap" }}
 - name: TRINO_LDAP_URL
   value: {{ $auth.ldap.url | quote }}
@@ -147,6 +153,7 @@ Create chart name and version as used by the chart label.
 {{- end }}
 - name: TRINO_OIDC_SKIP_TLS_VERIFY
   value: {{ $oidc.skipTlsVerify | default false | quote }}
+{{- end }}
 {{- end }}
 {{- end }}
 {{- end -}}

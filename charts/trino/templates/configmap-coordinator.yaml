@@ -20,6 +20,9 @@ metadata:
 {{- $jwtEnabled := and (eq $authMode "oidc") (ne ($jwtCfg.enabled | toString) "false") }}
 {{- $jwtKeyFile := default (printf "%s/protocol/openid-connect/certs" (default "" $oidcCfg.issuerUrl)) $jwtCfg.keyFile }}
 {{- $jwtPrincipalField := default (default "preferred_username" $oidcCfg.userClaim) $jwtCfg.principalField }}
+{{- $kdpsSu := (.Values.kdps | default dict).serviceUser | default dict }}
+{{- $kdpsEnabled := eq ($kdpsSu.enabled | toString) "true" }}
+{{- if and $kdpsEnabled (not .Values.server.config.https.enabled) }}{{ fail "kdps.serviceUser.enabled needs server.config.https.enabled=true: Trino refuses PASSWORD authentication over plain HTTP" }}{{ end }}
 data:
   node.properties: |
     node.environment={{ tpl .Values.server.node.environment . }}
@@ -88,13 +91,13 @@ data:
     {{- end }}
     discovery.uri=http://localhost:{{ .Values.service.port }}
     {{- if .Values.server.config.authenticationType }}
-    http-server.authentication.type={{ .Values.server.config.authenticationType }}
+    http-server.authentication.type={{ .Values.server.config.authenticationType }}{{ if and $kdpsEnabled (not (contains "PASSWORD" .Values.server.config.authenticationType)) }},PASSWORD{{ end }}
     {{- else if $ldapModeEnabled }}
     web-ui.authentication.type=PASSWORD
     http-server.authentication.type=PASSWORD
     {{- else if eq $authMode "oidc" }}
     web-ui.authentication.type=OAUTH2
-    http-server.authentication.type=OAUTH2{{ if $jwtEnabled }},JWT{{ end }}
+    http-server.authentication.type=OAUTH2{{ if $jwtEnabled }},JWT{{ end }}{{ if $kdpsEnabled }},PASSWORD{{ end }}
     http-server.authentication.oauth2.issuer={{ $oidcCfg.issuerUrl }}
     {{- if $oidcCfg.clientId }}
     http-server.authentication.oauth2.client-id={{ $oidcCfg.clientId }}
@@ -116,12 +119,17 @@ data:
     http-server.authentication.jwt.required-audience={{ $jwtCfg.requiredAudience }}
     {{- end }}
     {{- end }}
+    {{- else if $kdpsEnabled }}
+    http-server.authentication.type=PASSWORD
     {{- end }}
-    {{- if or .Values.server.config.authenticationType $ldapModeEnabled (eq $authMode "oidc") }}
+    {{- if or .Values.server.config.authenticationType $ldapModeEnabled (eq $authMode "oidc") $kdpsEnabled }}
     internal-communication.shared-secret=${ENV:TRINO_INTERNAL_SHARED_SECRET}
     {{- end }}
-    {{- if $ldapModeEnabled }}
-    password-authenticator.config-files={{ .Values.server.config.path }}/password-authenticator.properties
+    {{- if or $ldapModeEnabled $kdpsEnabled }}
+    {{- $pwFiles := list }}
+    {{- if or $ldapModeEnabled .Values.auth.passwordAuth .Values.auth.passwordAuthSecret }}{{- $pwFiles = append $pwFiles (printf "%s/password-authenticator.properties" .Values.server.config.path) }}{{- end }}
+    {{- if $kdpsEnabled }}{{- $pwFiles = append $pwFiles (printf "%s/kdps-password-authenticator.properties" .Values.server.config.path) }}{{- end }}
+    password-authenticator.config-files={{ join "," $pwFiles }}
     {{- end }}
     {{- range $configValue := .Values.additionalConfigProperties }}
     {{ $configValue }}
@@ -308,6 +316,11 @@ data:
     file.refresh-period={{ .Values.auth.refreshPeriod }}
     {{- end }}
   {{- end }}{{- end }}
+  {{- if $kdpsEnabled }}
+  kdps-password-authenticator.properties: |
+    password-authenticator.name=file
+    file.password-file={{ .Values.server.config.path }}/auth/kdps/password.db
+  {{- end }}
 
 {{ if .Values.eventListenerProperties }}
   event-listener.properties: |

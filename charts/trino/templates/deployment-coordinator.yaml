@@ -33,7 +33,9 @@ spec:
         {{- if and (eq .Values.accessControl.type "configmap") (not .Values.accessControl.refreshPeriod) }}
         checksum/access-control-config: {{ include (print $.Template.BasePath "/configmap-access-control-coordinator.yaml") . | sha256sum }}
         {{- end }}
-        {{- if or .Values.catalogs .Values.additionalCatalogs .Values.coordinator.additionalCatalogs }}
+        {{- /* Under dynamic catalog management the running store is the live source and the ConfigMap
+             only re-seeds it on restart, so a catalog edit must NOT roll the pods. */}}
+        {{- if and (or .Values.catalogs .Values.additionalCatalogs .Values.coordinator.additionalCatalogs) (not .Values.dynamicCatalogs.enabled) }}
         checksum/catalog-config: {{ include (print $.Template.BasePath "/configmap-catalog.yaml") . | sha256sum }}
         {{- end }}
         checksum/coordinator-config: {{ include (print $.Template.BasePath "/configmap-coordinator.yaml") . | sha256sum }}
@@ -96,6 +98,14 @@ spec:
         - name: file-password-authentication-volume
           secret:
             secretName: {{ template "trino.passwordSecretName" . }}
+            items:
+              - key: password.db
+                path: password.db
+        {{- end }}
+        {{- if eq (((.Values.kdps | default dict).serviceUser | default dict).enabled | toString) "true" }}
+        - name: kdps-service-user-volume
+          secret:
+            secretName: {{ default (printf "%s-kdps-service-user" (include "trino.fullname" .)) ((.Values.kdps | default dict).serviceUser | default dict).existingSecret }}
             items:
               - key: password.db
                 path: password.db
@@ -369,6 +379,11 @@ spec:
             {{- if or .Values.auth.groups .Values.auth.groupsAuthSecret }}
             - mountPath: {{ .Values.server.config.path }}/auth/group
               name: file-groups-authentication-volume
+            {{- end }}
+            {{- if eq (((.Values.kdps | default dict).serviceUser | default dict).enabled | toString) "true" }}
+            - mountPath: {{ .Values.server.config.path }}/auth/kdps
+              name: kdps-service-user-volume
+              readOnly: true
             {{- end }}
                         # ---------- Ranger mounts ----------
             {{- if $rangerEnabled }}

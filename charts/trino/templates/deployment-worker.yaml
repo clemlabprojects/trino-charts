@@ -39,7 +39,7 @@ spec:
   template:
     metadata:
       annotations:
-        {{- if or .Values.catalogs .Values.additionalCatalogs .Values.worker.additionalCatalogs }}
+        {{- if and (or .Values.catalogs .Values.additionalCatalogs .Values.worker.additionalCatalogs) (not .Values.dynamicCatalogs.enabled) }}
         checksum/catalog-config: {{ include (print $.Template.BasePath "/configmap-catalog.yaml") . | sha256sum }}
         {{- end }}
         checksum/worker-config: {{ include (print $.Template.BasePath "/configmap-worker.yaml") . | sha256sum }}

@@ -69,7 +69,7 @@ data:
     memory.heap-headroom-per-node={{ .Values.worker.config.memory.heapHeadroomPerNode }}
     {{- end }}
     discovery.uri=http://{{ template "trino.fullname" . }}:{{ .Values.service.port }}
-    {{- if or .Values.server.config.authenticationType (eq $authMode "oidc") (eq $authMode "ldap") (eq $authMode "ad") }}
+    {{- if or .Values.server.config.authenticationType (eq $authMode "oidc") (eq $authMode "ldap") (eq $authMode "ad") (eq (((.Values.kdps | default dict).serviceUser | default dict).enabled | toString) "true") }}
     internal-communication.shared-secret=${ENV:TRINO_INTERNAL_SHARED_SECRET}
     {{- end }}
     {{- range $configValue := .Values.additionalConfigProperties }}

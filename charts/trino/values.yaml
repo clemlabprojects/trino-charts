@@ -721,6 +721,26 @@ dynamicCatalogs:
                                        # symlinked by the launcher onto the read-only config dir)
   readOnly: false                      # true = catalogs listed/loaded but CREATE/DROP refused
 
+# kdps -- Integration with the KDPS management view (Ambari k8s view).
+# @raw
+# `serviceUser` gives KDPS its own Trino login so the view can run catalog statements
+# (CREATE/ALTER/DROP CATALOG) on the live coordinator **as the operator who clicked**:
+# KDPS authenticates as this user and sets `X-Trino-User: <operator>`; Trino only honours that
+# header when Ranger grants this user `impersonate`, and Ranger then authorises the OPERATOR
+# (not KDPS) for the catalog action. The user is a Trino *file* password authenticator added
+# beside whatever the cluster already uses (LDAP/AD, OIDC+JWT, Kerberos, or none), so it works
+# in every auth mode. Requires `server.config.https.enabled=true` (Trino refuses PASSWORD over
+# plain HTTP). The password is generated once (kept across upgrades) into
+# `<release>-kdps-service-user` unless `existingSecret` is set (keys: `username`, `password`,
+# `password.db` = htpasswd/bcrypt line). With `dynamicCatalogs.enabled` the catalog ConfigMap is
+# no longer part of the pod checksum, so a catalog edit written back to `catalogs` does not roll
+# the pods — the running store already has it.
+kdps:
+  serviceUser:
+    enabled: false
+    username: kdps
+    existingSecret: ""
+
 catalogs:
   tpch: |
     connector.name=tpch
