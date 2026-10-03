@@ -5,8 +5,8 @@ description: |
   the console that deploys and governs the Kubernetes data platform services. Built for the
   cluster it manages: it runs inside OpenShift or Kubernetes and is deployed by Argo CD.
 type: application
-version: 0.1.2
-appVersion: "2.8.2.0-140"
+version: 0.1.3
+appVersion: "2.8.2.0-143"
 keywords: [ambari, kdps, clemlab, openshift, data-platform]
 home: https://clemlab.com
 sources:
