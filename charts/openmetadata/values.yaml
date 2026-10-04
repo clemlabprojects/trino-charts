@@ -274,6 +274,14 @@ ingestion:
 # PostgreSQL subchart — overridden to the ODP-built clemlab image at
 # registry.clemlab.com/clemlabprojects/bitnami/postgresql:18.0-clemlab-1 (multi-arch,
 # PGDG sources, vendored Bitnami chart layout). See odp-stack/bigtop-packages/src/common/bitnami-postgresql/.
+# Init container that waits for PostgreSQL and syncs the auth settings into the DB after
+# every migrate. Needs psql and pg_isready; follows global.imageRegistry like every other image.
+syncAuthConfig:
+  image:
+    registry: ""
+    repository: bitnami/postgresql
+    tag: "18.0-clemlab-1"
+
 postgresql:
   enabled: true
   image:

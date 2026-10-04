@@ -112,7 +112,9 @@ spec:
         # persists across helm uninstall/install the DB row is never updated when
         # chart values change (e.g. clientType public → confidential).
         - name: sync-auth-config
-          image: postgres:15-alpine
+          # psql + pg_isready from the mirrored Bitnami PostgreSQL image, so an air-gapped
+          # registry needs no docker.io access (this image used to be hardcoded to Docker Hub).
+          image: {{ include "openmetadata.resolveImage" (dict "root" . "image" .Values.syncAuthConfig.image) }}
           command:
             - sh
             - -c
