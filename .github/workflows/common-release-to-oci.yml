@@ -7,8 +7,6 @@ on:
     paths:
       - "charts/common/**"
       - ".github/workflows/common-release-to-oci.yml"
-  schedule:
-    - cron: "0 6 * * *"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

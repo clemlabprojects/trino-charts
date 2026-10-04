@@ -7,8 +7,6 @@ on:
     paths:
       - "charts/keda/**"
       - ".github/workflows/release-keda-to-oci.yml"
-  schedule:
-    - cron: "0 6 * * *"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
