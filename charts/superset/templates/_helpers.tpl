@@ -953,7 +953,10 @@ release: {{ .Release.Name }}
       ns={{ .Release.Namespace }};
       realm={{ default "EXAMPLE.COM" $kerb.realm }};
       princ={{ default "" $kinit.principal }};
+      kt={{ printf "%s/%s" (default "/etc/security/keytabs" $kerb.keytab.mountPath) (default "service.keytab" $kerb.keytab.secretDataKey) }};
+      if [ -z "$princ" ]; then princ=$(klist -kt "$kt" 2>/dev/null | awk 'NR>3 && $NF ~ /@/ {print $NF; exit}'); fi;
       [ -z "$princ" ] && princ="${svc}-${ns}@${realm}";
+      echo "kinit principal: $princ";
       while true; do
         kinit -kt {{ printf "%s/%s" (default "/etc/security/keytabs" $kerb.keytab.mountPath) (default "service.keytab" $kerb.keytab.secretDataKey) }} "$princ"{{- if $kinit.extraArgs }} {{ join " " $kinit.extraArgs }}{{- end }} && \
         sleep {{ default 3600 $kinit.intervalSeconds }};
