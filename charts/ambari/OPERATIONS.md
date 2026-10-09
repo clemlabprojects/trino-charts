@@ -175,6 +175,29 @@ Sign in with `admin` / `admin` and **change it immediately** — it is the defau
   Held in the Ambari database, so it survives restarts and upgrades.
 * **Kubernetes** — KDPS → Configuration → upload a kubeconfig. That is a file under
   `/var/lib/ambari-server`, encrypted with the master key, and it needs `persistence.enabled=true`.
+  If the file holds several contexts, pick one on the same page; KDPS and Helm both use it.
+
+### An account limited to its own projects
+
+KDPS works with an account that administers its own projects and has no cluster-wide rights:
+releases, events and the dashboard are read project by project, and the dashboard shows each
+project's usage against its ResourceQuota. What changes:
+
+* **Projects are created beforehand** by the platform team. KDPS installs into an existing project
+  and only creates a namespace when the account is allowed to.
+* **Autoscaling (KEDA / Custom Metrics Autoscaler on OpenShift).** Without the right to create a
+  ClusterRoleBinding, KDPS points the autoscaler at Thanos's per-project port (9092) with a token
+  limited to the project. Two grants are needed per project, and the deploy stops with the exact
+  command when one is missing:
+  * `oc policy add-role-to-user monitoring-edit <account> -n <project>`, so the release can create its
+    ServiceMonitors. User workload monitoring must be enabled on the cluster.
+  * The KEDA operator must watch the project. If it was installed with a `watchNamespace`
+    restriction, add the project to it.
+* **Certificates.** cert-manager ClusterIssuers are not visible to such an account. Use the Ambari
+  internal CA (the default) or a certificate issued by your own CA; add that CA under KDPS →
+  Truststores so the deployed services trust each other.
+* **GitOps (Flux).** Works the same way; the chart source written for Flux is the chart repository
+  configured in KDPS.
 
 ---
 
