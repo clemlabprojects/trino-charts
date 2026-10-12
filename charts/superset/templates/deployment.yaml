@@ -57,12 +57,8 @@ spec:
       annotations:
         # Force reload on config changes
         checksum/superset_config.py: {{ include "superset-config" . | sha256sum }}
-        checksum/superset_init.sh: {{ tpl .Values.init.initscript . | sha256sum }}
         checksum/superset_bootstrap.sh: {{ tpl .Values.bootstrapScript . | sha256sum }}
-        checksum/connections: {{ .Values.supersetNode.connections | toYaml | sha256sum }}
-        checksum/extraConfigs: {{ .Values.extraConfigs | toYaml | sha256sum }}
-        checksum/extraSecrets: {{ .Values.extraSecrets | toYaml | sha256sum }}
-        checksum/extraSecretEnv: {{ .Values.extraSecretEnv | toYaml | sha256sum }}
+        checksum/secrets: {{ include "superset.secrets.checksum" . }}
         checksum/configOverrides: {{ .Values.configOverrides | toYaml | sha256sum }}
         checksum/configOverridesFiles: {{ .Values.configOverridesFiles | toYaml | sha256sum }}
         {{- if .Values.supersetNode.forceReload }}
@@ -123,10 +119,7 @@ spec:
           env:
             - name: "SUPERSET_PORT"
               value: {{ .Values.service.port | quote}}
-            {{- range $key, $value := .Values.extraEnv }}
-            - name: {{ $key | quote}}
-              value: {{ $value | quote }}
-            {{- end }}
+            {{- include "superset.extraEnv" . | nindent 12 }}
             {{- range $key, $value := .Values.supersetNode.env }}
             - name: {{ $key | quote}}
               value: {{ $value | quote }}
@@ -218,8 +211,9 @@ spec:
             secretName: {{ tpl .Values.configFromSecret . }}
         {{- if .Values.extraConfigs }}
         - name: superset-extra-config
-          configMap:
-            name: {{ template "superset.fullname" . }}-extra-config
+          secret:
+            secretName: {{ template "superset.fullname" . }}-extra-config
+            defaultMode: {{ .Values.extraConfigsDefaultMode }}
         {{- end }}
         {{- with .Values.extraVolumes }}
           {{- tpl (toYaml .) $ | nindent 8 -}}

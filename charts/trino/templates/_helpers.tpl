@@ -70,6 +70,70 @@ Create chart name and version as used by the chart label.
 {{ template "trino.fullname" . }}-catalog-worker
 {{- end -}}
 
+{{/*
+Credentials of the security profile: the LDAP/AD bind password and the inline OIDC client secret. They reach the pods
+from a Secret (secretKeyRef) and the configuration files reference them as ${ENV:...}, so that they never sit in a
+ConfigMap or a pod spec, where anyone allowed to read ConfigMaps or Deployments in the namespace could read them.
+*/}}
+
+{{/* The bind password in effect: the LDAP one, or in AD mode the AD one when no LDAP one is set. */}}
+{{- define "trino.auth.bindPassword" -}}
+{{- $auth := .Values.global.security.auth | default dict -}}
+{{- $mode := lower (default "" $auth.mode) -}}
+{{- $password := ($auth.ldap | default dict).bindPassword | default "" -}}
+{{- if eq $mode "ad" -}}
+{{- $password = default (($auth.ad | default dict).bindPassword | default "") $password -}}
+{{- end -}}
+{{- if or (eq $mode "ldap") (eq $mode "ad") -}}{{ $password }}{{- end -}}
+{{- end -}}
+
+{{/* "true" when the OIDC client is given inline (clientId), with no secretRef naming the client's own Secret. */}}
+{{- define "trino.auth.oidcInline" -}}
+{{- $auth := .Values.global.security.auth | default dict -}}
+{{- $oidc := $auth.oidc | default dict -}}
+{{- if and (eq (lower (default "" $auth.mode)) "oidc") (not ($oidc.secretRef | default dict).name) $oidc.clientId -}}true{{- end -}}
+{{- end -}}
+
+{{/* The inline OIDC client secret. */}}
+{{- define "trino.auth.oidcClientSecret" -}}
+{{- if include "trino.auth.oidcInline" . -}}
+{{ ((.Values.global.security.auth | default dict).oidc | default dict).clientSecret | default "" }}
+{{- end -}}
+{{- end -}}
+
+{{/* The Secret holding them: global.security.auth.existingSecret, or <fullname>-auth-credentials (secret-auth-credentials.yaml). */}}
+{{- define "trino.auth.credentialsSecretName" -}}
+{{- $auth := .Values.global.security.auth | default dict -}}
+{{- default (printf "%s-auth-credentials" (include "trino.fullname" .)) $auth.existingSecret -}}
+{{- end -}}
+
+{{/* "true" when the pods read a bind password from that Secret. */}}
+{{- define "trino.auth.hasBindPassword" -}}
+{{- $auth := .Values.global.security.auth | default dict -}}
+{{- $mode := lower (default "" $auth.mode) -}}
+{{- if and (or (eq $mode "ldap") (eq $mode "ad")) (or (include "trino.auth.bindPassword" .) $auth.existingSecret) -}}true{{- end -}}
+{{- end -}}
+
+{{/*
+Pod annotation that restarts the coordinator when one of these credentials changes: the pod reads them from the
+Secret, so its spec does not change with them. The hash is salted with the internal shared secret (random, kept in
+the <fullname>-internal-communication Secret), so that the annotation, which anyone allowed to read Deployments can
+see, does not let them test guesses of a weak bind password. Empty while that Secret does not exist yet (first
+install, or no cluster to read it from): the annotation then appears with the next upgrade.
+*/}}
+{{- define "trino.auth.credentialsChecksum" -}}
+{{- $data := printf "%s\n%s" (include "trino.auth.bindPassword" .) (include "trino.auth.oidcClientSecret" .) -}}
+{{- $existing := lookup "v1" "Secret" .Release.Namespace (printf "%s-internal-communication" (include "trino.fullname" .)) -}}
+{{- if and $existing (or (include "trino.auth.hasBindPassword" .) (include "trino.auth.oidcInline" .)) -}}
+{{- printf "%s\n%s" (index ($existing.data | default dict) "shared-secret" | default "") $data | sha256sum -}}
+{{- end -}}
+{{- end -}}
+
+{{/* The property a "key=value" configuration line sets. */}}
+{{- define "trino.propertyKey" -}}
+{{- trim (first (splitList "=" (toString .))) -}}
+{{- end -}}
+
 {{/* Security profile wiring: map global.security.auth.* to Trino config/environment */}}
 {{- define "trino.security.env" -}}
 {{- $auth := .Values.global.security.auth | default dict -}}
@@ -92,8 +156,6 @@ Create chart name and version as used by the chart label.
   value: {{ $auth.ldap.url | quote }}
 - name: TRINO_LDAP_USER_BIND
   value: {{ $auth.ldap.bindDn | quote }}
-- name: TRINO_LDAP_PASSWORD
-  value: {{ $auth.ldap.bindPassword | quote }}
 - name: TRINO_LDAP_USER_DN_TEMPLATE
   value: {{ $auth.ldap.userDnTemplate | quote }}
 - name: TRINO_LDAP_BASE_DN
@@ -110,8 +172,6 @@ Create chart name and version as used by the chart label.
   value: {{ $auth.ad.baseDn | quote }}
 - name: TRINO_AD_BIND_DN
   value: {{ $auth.ad.bindDn | quote }}
-- name: TRINO_AD_BIND_PASSWORD
-  value: {{ $auth.ad.bindPassword | quote }}
 - name: TRINO_AD_USER_SEARCH_FILTER
   value: {{ $auth.ad.userSearchFilter | quote }}
 - name: TRINO_AD_DOMAIN
@@ -136,8 +196,13 @@ Create chart name and version as used by the chart label.
 {{- else }}
 - name: OIDC_CLIENT_ID
   value: {{ $oidc.clientId | quote }}
+{{- if include "trino.auth.oidcInline" . }}
 - name: OIDC_CLIENT_SECRET
-  value: {{ $oidc.clientSecret | quote }}
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "trino.auth.credentialsSecretName" . | quote }}
+      key: oidc-client-secret
+{{- end }}
 {{- end }}
 - name: TRINO_OIDC_SCOPES
   value: {{ default "openid email profile" $oidc.scopes | quote }}
@@ -153,6 +218,22 @@ Create chart name and version as used by the chart label.
 {{- end }}
 - name: TRINO_OIDC_SKIP_TLS_VERIFY
   value: {{ $oidc.skipTlsVerify | default false | quote }}
+{{- end }}
+{{- if include "trino.auth.hasBindPassword" . }}
+{{- /* One name for LDAP and AD: password-authenticator.properties reads TRINO_LDAP_PASSWORD. TRINO_AD_BIND_PASSWORD
+       is kept in AD mode for files written against earlier chart versions. */}}
+- name: TRINO_LDAP_PASSWORD
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "trino.auth.credentialsSecretName" . | quote }}
+      key: bind-password
+{{- if eq $auth.mode "ad" }}
+- name: TRINO_AD_BIND_PASSWORD
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "trino.auth.credentialsSecretName" . | quote }}
+      key: bind-password
+{{- end }}
 {{- end }}
 {{- end }}
 {{- end }}

@@ -51,6 +51,7 @@ global:
       ldap:
         url: ""
         bindDn: ""
+        # Passed to the pods through the env Secret (secret-env.yaml), never as a plain env var.
         bindPassword: ""
         userDnTemplate: ""
         userSearchFilter: ""
@@ -64,6 +65,7 @@ global:
         url: ""
         baseDn: ""
         bindDn: ""
+        # Passed to the pods through the env Secret (secret-env.yaml), never as a plain env var.
         bindPassword: ""
         userSearchFilter: ""
         domain: ""
@@ -76,7 +78,8 @@ global:
           name: ""                  # e.g. superset-prod-oidc-client  (set by OIDC_CREATE_SECRET)
           clientIdKey: "client_id"
           clientSecretKey: "client_secret"
-        # Fallback direct values (used when secretRef.name is empty, e.g. manual config)
+        # Fallback direct values (used when secretRef.name is empty, e.g. manual config). The client
+        # secret then reaches the pods through the env Secret (secret-env.yaml).
         clientId: ""
         clientSecret: ""
         scopes: "openid email profile"
@@ -195,6 +198,8 @@ runAsUser: ~
 secretEnv:
   # -- Change to false in order to support externally created secret (Binami "Sealed Secrets" for Kubernetes or External Secrets Operator)
   # note: when externally creating the secret, the chart still expects to pull values from a secret with the name of the release defaults to `release-name-superset-env` - full logic located in _helpers.tpl file: `define "superset.fullname"`
+  # The pods also read the bind password of an LDAP/AD security profile from it (key SECURITY_LDAP_BIND_PASSWORD or
+  # SECURITY_AD_BIND_PASSWORD), and the client secret of an OIDC profile without secretRef (SECURITY_OIDC_CLIENT_SECRET).
   create: true
 
 # -- Specify service account name to be used
@@ -253,7 +258,7 @@ extraEnvRaw: []
   #       name: superset.superset-postgres.credentials.postgresql.acid.zalan.do
   #       key: password
 
-# -- Extra environment variables to pass as secrets
+# -- Extra environment variables to pass as secrets. A name also set in `extraEnv` is taken from here only.
 extraSecretEnv: {}
   # MAPBOX_API_KEY: ...
   # # Google API Keys: https://console.cloud.google.com/apis/credentials
@@ -262,7 +267,8 @@ extraSecretEnv: {}
   #   # Generate your own secret key for encryption. Use openssl rand -base64 42 to generate a good key
   #  SUPERSET_SECRET_KEY: 'CHANGE_ME_TO_A_COMPLEX_RANDOM_SECRET'
 
-# -- Extra files to mount on `/app/pythonpath`
+# -- Extra files to mount on `extraConfigMountPath` (`/app/configs`), kept in a Secret since they may hold the
+# passwords of database connections (`import_datasources*.yaml`)
 extraConfigs: {}
   # import_datasources.yaml: |
   #     databases:
@@ -348,6 +354,10 @@ configOverridesFiles: {}
 configMountPath: "/app/pythonpath"
 
 extraConfigMountPath: "/app/configs"
+
+# -- File mode of the `extraConfigs` files (0440: read-only for the file owner and group). The pods must still be
+# able to read them: on Kubernetes with a non-root `runAsUser` and no `fsGroup`, use 0444.
+extraConfigsDefaultMode: 0440
 
 # Trino JWT service-token sidecar. When the KDPS view wires a Superset -> Trino database in
 # OIDC mode, Superset must present a bearer JWT to Trino (which then impersonates the logged-in

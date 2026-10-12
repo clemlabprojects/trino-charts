@@ -84,8 +84,13 @@ global:
 
     # Authentication profile — injected by Ambari K8S view global security profile.
     # Supported modes: none | ldap | ad | oidc
+    # The bind password (ldap/ad) and the inline OIDC client secret go to the Secret
+    # <fullname>-auth-credentials (keys bind-password, oidc-client-secret); the pods read them from it
+    # and the configuration files reference them as ${ENV:...}, so they never sit in a ConfigMap.
     auth:
       mode: none
+      # Name of a Secret you provide with those keys instead; bindPassword and clientSecret are then ignored.
+      existingSecret: ""
       oidc:
         issuerUrl: ""
         secretRef:
@@ -825,6 +830,16 @@ envFrom: []
 # ```yaml
 #   - secretRef:
 #     name: extra-secret
+# ```
+
+catalogCredentialSecrets: []
+# catalogCredentialSecrets -- Secrets in the release namespace holding the credentials of catalogs. Every key of
+# each Secret becomes an environment variable of the coordinator and the workers, so that a catalog references it
+# as `${ENV:KEY}` instead of writing the password into the catalog ConfigMap. Restart Trino after changing one.
+# @raw
+# Example:
+# ```yaml
+#   - postgres-prod-credentials   # key PG_PASSWORD, used as connection-password=${ENV:PG_PASSWORD}
 # ```
 
 initContainers: {}

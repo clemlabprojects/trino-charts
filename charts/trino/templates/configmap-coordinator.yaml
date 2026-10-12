@@ -99,11 +99,9 @@ data:
     web-ui.authentication.type=OAUTH2
     http-server.authentication.type=OAUTH2{{ if $jwtEnabled }},JWT{{ end }}{{ if $kdpsEnabled }},PASSWORD{{ end }}
     http-server.authentication.oauth2.issuer={{ $oidcCfg.issuerUrl }}
-    {{- if $oidcCfg.clientId }}
-    http-server.authentication.oauth2.client-id={{ $oidcCfg.clientId }}
-    http-server.authentication.oauth2.client-secret={{ $oidcCfg.clientSecret }}
-    http-server.authentication.oauth2.additional-audiences={{ $oidcCfg.clientId }}
-    {{- else if ($oidcCfg.secretRef | default dict).name }}
+    {{- /* From the env, whichever source "trino.security.env" reads them from: the client's own Secret
+           (secretRef, which wins), or the inline client id and the chart's credentials Secret. */}}
+    {{- if or ($oidcCfg.secretRef | default dict).name $oidcCfg.clientId }}
     http-server.authentication.oauth2.client-id=${ENV:OIDC_CLIENT_ID}
     http-server.authentication.oauth2.client-secret=${ENV:OIDC_CLIENT_SECRET}
     http-server.authentication.oauth2.additional-audiences=${ENV:OIDC_CLIENT_ID}
@@ -122,8 +120,16 @@ data:
     {{- else if $kdpsEnabled }}
     http-server.authentication.type=PASSWORD
     {{- end }}
+    {{- /* Properties the chart writes from a Secret. The same property in additionalConfigProperties is left out:
+           its literal value would sit in this ConfigMap. Values written by earlier KDPS versions carried both. */}}
+    {{- $fromSecrets := list }}
     {{- if or .Values.server.config.authenticationType $ldapModeEnabled (eq $authMode "oidc") $kdpsEnabled }}
+    {{- $fromSecrets = append $fromSecrets "internal-communication.shared-secret" }}
     internal-communication.shared-secret=${ENV:TRINO_INTERNAL_SHARED_SECRET}
+    {{- end }}
+    {{- if and .Values.server.config.https.keystore.secretName .Values.server.config.https.keystore.passwordSecretName .Values.server.config.https.enabled }}
+    {{- /* appended by the init-https-keystore init container, from the keystore password Secret */}}
+    {{- $fromSecrets = append $fromSecrets "http-server.https.keystore.key" }}
     {{- end }}
     {{- if or $ldapModeEnabled $kdpsEnabled }}
     {{- $pwFiles := list }}
@@ -131,11 +137,10 @@ data:
     {{- if $kdpsEnabled }}{{- $pwFiles = append $pwFiles (printf "%s/kdps-password-authenticator.properties" .Values.server.config.path) }}{{- end }}
     password-authenticator.config-files={{ join "," $pwFiles }}
     {{- end }}
-    {{- range $configValue := .Values.additionalConfigProperties }}
+    {{- range $configValue := concat (.Values.additionalConfigProperties | default list) (.Values.coordinator.additionalConfigProperties | default list) }}
+    {{- if not (has (include "trino.propertyKey" $configValue) $fromSecrets) }}
     {{ $configValue }}
     {{- end }}
-    {{- range $configValue := .Values.coordinator.additionalConfigProperties }}
-    {{ $configValue }}
     {{- end }}
     {{- if .Values.dynamicCatalogs.enabled }}
     catalog.management=dynamic
@@ -262,10 +267,6 @@ data:
   {{- if eq $authMode "ad" }}
   {{- $bindDn = default $adCfg.bindDn $bindDn }}
   {{- end }}
-  {{- $bindPassword := $ldapCfg.bindPassword }}
-  {{- if eq $authMode "ad" }}
-  {{- $bindPassword = default $adCfg.bindPassword $bindPassword }}
-  {{- end }}
   {{- $userFilter := $ldapCfg.userSearchFilter }}
   {{- if eq $authMode "ad" }}
   {{- $userFilter = default $adCfg.userSearchFilter $userFilter }}
@@ -292,8 +293,8 @@ data:
     {{- if $bindDn }}
     ldap.bind-dn={{ $bindDn }}
     {{- end }}
-    {{- if $bindPassword }}
-    ldap.bind-password={{ $bindPassword }}
+    {{- if include "trino.auth.hasBindPassword" $ }}
+    ldap.bind-password=${ENV:TRINO_LDAP_PASSWORD}
     {{- end }}
     {{- if not (or (hasPrefix $ldapUrl "ldaps://") $ldapCfg.startTls) }}
     ldap.allow-insecure=true

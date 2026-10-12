@@ -66,10 +66,11 @@ On helm this can be set on `extraSecretEnv.SUPERSET_SECRET_KEY` or `configOverri
 | envFromSecret | string | `"{{ template \"superset.fullname\" . }}-env"` | The name of the secret which we will use to populate env vars in deployed pods This can be useful for secret keys, etc. |
 | envFromSecrets | list | `[]` | This can be a list of templated strings |
 | extraConfigMountPath | string | `"/app/configs"` |  |
-| extraConfigs | object | `{}` | Extra files to mount on `/app/pythonpath` |
+| extraConfigs | object | `{}` | Extra files to mount on `extraConfigMountPath` (`/app/configs`), kept in a Secret since they may hold the passwords of database connections (`import_datasources*.yaml`) |
+| extraConfigsDefaultMode | int | `288` | File mode of the `extraConfigs` files (0440: read-only for the file owner and group). The pods must still be able to read them: on Kubernetes with a non-root `runAsUser` and no `fsGroup`, use 0444. |
 | extraEnv | object | `{}` | Extra environment variables that will be passed into pods |
 | extraEnvRaw | list | `[]` | Extra environment variables in RAW format that will be passed into pods |
-| extraSecretEnv | object | `{}` | Extra environment variables to pass as secrets |
+| extraSecretEnv | object | `{}` | Extra environment variables to pass as secrets. A name also set in `extraEnv` is taken from here only. |
 | extraSecrets | object | `{}` | Extra files to mount on `/app/pythonpath` as secrets |
 | extraVolumeMounts | list | `[]` |  |
 | extraVolumes | list | `[]` |  |
@@ -120,7 +121,7 @@ On helm this can be set on `extraSecretEnv.SUPERSET_SECRET_KEY` or `configOverri
 | resources | object | `{}` |  |
 | runAsUser | int | `0` | User ID directive. This user must have enough permissions to run the bootstrap script Running containers as root is not recommended in production. Change this to another UID - e.g. 1000 to be more secure |
 | secretEnv | object | `{"create":true}` | Specify rather or not helm should create the secret described in `secret-env.yaml` template |
-| secretEnv.create | bool | `true` | Change to false in order to support externally created secret (Binami "Sealed Secrets" for Kubernetes or External Secrets Operator) note: when externally creating the secret, the chart still expects to pull values from a secret with the name of the release defaults to `release-name-superset-env` - full logic located in _helpers.tpl file: `define "superset.fullname"` |
+| secretEnv.create | bool | `true` | Change to false in order to support externally created secret (Binami "Sealed Secrets" for Kubernetes or External Secrets Operator) note: when externally creating the secret, the chart still expects to pull values from a secret with the name of the release defaults to `release-name-superset-env` - full logic located in _helpers.tpl file: `define "superset.fullname"` The pods also read the bind password of an LDAP/AD security profile from it (key SECURITY_LDAP_BIND_PASSWORD or SECURITY_AD_BIND_PASSWORD), and the client secret of an OIDC profile without secretRef (SECURITY_OIDC_CLIENT_SECRET). |
 | service.annotations | object | `{}` |  |
 | service.loadBalancerIP | string | `nil` |  |
 | service.nodePort.http | int | `"nil"` |  |

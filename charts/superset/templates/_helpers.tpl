@@ -27,6 +27,79 @@ Expand the name of the chart.
 
 {{/* Security profile wiring: expose auth settings as env vars for Superset to consume in custom config */}}
 
+{{/*
+The Secret that holds the env vars of the pods: the chart's own <fullname>-env, or the one named by envFromSecret
+when the operator provides it (secretEnv.create=false).
+*/}}
+{{- define "superset.envSecretName" -}}
+{{- if .Values.secretEnv.create -}}
+{{- printf "%s-env" (include "superset.fullname" .) -}}
+{{- else -}}
+{{- tpl .Values.envFromSecret . -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+The credentials of the security profile, as the keys of the env Secret (secret-env.yaml). The pods read them through
+secretKeyRef, so they never sit in a pod spec, where anyone allowed to read Deployments could see them. The inline
+OIDC client secret is only a fallback: with secretRef.name the pods read the client's own Secret.
+*/}}
+{{- define "superset.security.secretData" -}}
+{{- $auth := .Values.global.security.auth | default dict -}}
+{{- $mode := $auth.mode | default "" -}}
+{{- if eq $mode "ldap" }}
+SECURITY_LDAP_BIND_PASSWORD: {{ ($auth.ldap | default dict).bindPassword | default "" | quote }}
+{{- else if eq $mode "ad" }}
+SECURITY_AD_BIND_PASSWORD: {{ ($auth.ad | default dict).bindPassword | default "" | quote }}
+{{- else if and (eq $mode "oidc") (not (($auth.oidc | default dict).secretRef | default dict).name) }}
+SECURITY_OIDC_CLIENT_SECRET: {{ ($auth.oidc | default dict).clientSecret | default "" | quote }}
+{{- end }}
+{{- end -}}
+
+{{/* An env var read from one of the keys above. An operator-provided Secret may leave the key out. */}}
+{{- define "superset.security.secretEnvVar" -}}
+- name: {{ .key }}
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "superset.envSecretName" .root | quote }}
+      key: {{ .key }}
+      {{- if not .root.Values.secretEnv.create }}
+      optional: true
+      {{- end }}
+{{- end -}}
+
+{{/*
+One checksum over everything secret the pods read (database and Redis connections, datasource files, extra secret
+files and env vars, the init script with the admin password, the credentials of the security profile), so that the
+pods restart when any of it changes, including what they read through secretKeyRef. A single hash of all of it:
+separate hashes, which anyone allowed to read Deployments can see, would let them test guesses of each weak password
+on its own.
+*/}}
+{{- define "superset.secrets.checksum" -}}
+{{- $secrets := dict "connections" .Values.supersetNode.connections "extraConfigs" .Values.extraConfigs
+      "extraSecrets" .Values.extraSecrets "extraSecretEnv" .Values.extraSecretEnv
+      "initscript" (tpl .Values.init.initscript .) "security" (include "superset.security.secretData" .) -}}
+{{- $secrets | toYaml | sha256sum -}}
+{{- end -}}
+
+{{/*
+extraEnv as plain env vars, except the names extraSecretEnv also sets: those come from the env Secret through
+envFrom, and an explicit env var would win over it. Values written by an earlier deploy (the Superset SECRET_KEY used
+to be passed in extraEnv) then stop showing in the pod spec.
+*/}}
+{{- define "superset.extraEnv" -}}
+{{- $secretEnv := dict -}}
+{{- if .Values.secretEnv.create -}}
+{{- $secretEnv = .Values.extraSecretEnv | default dict -}}
+{{- end -}}
+{{- range $key, $value := .Values.extraEnv }}
+{{- if not (hasKey $secretEnv $key) }}
+- name: {{ $key | quote }}
+  value: {{ $value | quote }}
+{{- end }}
+{{- end }}
+{{- end -}}
+
 {{- define "superset.security.env" -}}
 {{- $auth := .Values.global.security.auth | default dict -}}
 {{- if $auth.mode }}
@@ -37,8 +110,7 @@ Expand the name of the chart.
   value: {{ $auth.ldap.url | quote }}
 - name: SECURITY_LDAP_BIND_DN
   value: {{ $auth.ldap.bindDn | quote }}
-- name: SECURITY_LDAP_BIND_PASSWORD
-  value: {{ $auth.ldap.bindPassword | quote }}
+{{ include "superset.security.secretEnvVar" (dict "root" . "key" "SECURITY_LDAP_BIND_PASSWORD") }}
 {{- end }}
 {{- if or (eq $auth.mode "ldap") (eq $auth.mode "ad") }}
 - name: SECURITY_LDAP_USER_DN_TEMPLATE
@@ -67,8 +139,7 @@ Expand the name of the chart.
   value: {{ $auth.ad.baseDn | quote }}
 - name: SECURITY_AD_BIND_DN
   value: {{ $auth.ad.bindDn | quote }}
-- name: SECURITY_AD_BIND_PASSWORD
-  value: {{ $auth.ad.bindPassword | quote }}
+{{ include "superset.security.secretEnvVar" (dict "root" . "key" "SECURITY_AD_BIND_PASSWORD") }}
 - name: SECURITY_AD_USER_SEARCH_FILTER
   value: {{ $auth.ad.userSearchFilter | quote }}
 - name: SECURITY_AD_DOMAIN
@@ -98,11 +169,10 @@ Expand the name of the chart.
       name: {{ $oidcSecretRef.name | quote }}
       key: {{ default "client_secret" $oidcSecretRef.clientSecretKey | quote }}
 {{- else }}
-{{- /* Manual / fallback: plain Helm values (operator-supplied) */}}
+{{- /* Manual / fallback: the client id from the values, the client secret from the env Secret */}}
 - name: SECURITY_OIDC_CLIENT_ID
   value: {{ $auth.oidc.clientId | quote }}
-- name: SECURITY_OIDC_CLIENT_SECRET
-  value: {{ $auth.oidc.clientSecret | quote }}
+{{ include "superset.security.secretEnvVar" (dict "root" . "key" "SECURITY_OIDC_CLIENT_SECRET") }}
 {{- end }}
 - name: SECURITY_OIDC_SCOPES
   value: {{ $auth.oidc.scopes | default "openid email profile" | quote }}

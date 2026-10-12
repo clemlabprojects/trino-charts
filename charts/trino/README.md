@@ -397,6 +397,13 @@ Fast distributed SQL query engine for big data analytics that helps you explore 
     - secretRef:
       name: extra-secret
   ```
+* `catalogCredentialSecrets` - list, default: `[]`  
+
+  Secrets in the release namespace holding the credentials of catalogs. Every key of each Secret becomes an environment variable of the coordinator and the workers, so that a catalog references it as `${ENV:KEY}` instead of writing the password into the catalog ConfigMap. Restart Trino after changing one.
+  Example:
+  ```yaml
+    - postgres-prod-credentials   # key PG_PASSWORD, used as connection-password=${ENV:PG_PASSWORD}
+  ```
 * `initContainers` - object, default: `{}`  
 
   Additional [containers that run to completion](https://kubernetes.io/docs/concepts/workloads/pods/init-containers/) during pod initialization.
