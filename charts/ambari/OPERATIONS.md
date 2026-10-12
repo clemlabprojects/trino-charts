@@ -193,6 +193,37 @@ project's usage against its ResourceQuota. What changes:
     ServiceMonitors. User workload monitoring must be enabled on the cluster.
   * The KEDA operator must watch the project. If it was installed with a `watchNamespace`
     restriction, add the project to it.
+* **Security context constraints (OpenMetadata, JupyterHub).** Some of their pods pin a UID or run as
+  root, which the default `restricted-v2` SCC refuses: OpenMetadata needs `anyuid` for its bundled
+  OpenSearch and Airflow, JupyterHub needs `nonroot-v2` and `anyuid`. KDPS first checks whether the
+  release's service accounts may already use them, and then changes nothing. A project admin may not
+  grant an SCC, so otherwise the deploy stops and prints two ways out:
+  * the platform team grants the SCCs to the release's service accounts with the printed command, for
+    example `oc adm policy add-scc-to-user anyuid -z default -z om-airflow-scheduler ... -n <project>`.
+    The next deploy finds the grant and writes nothing.
+  * or, once per project, the platform team lets the account grant these SCCs itself:
+
+    ```
+    # once per cluster
+    oc create clusterrole kdps-grant-scc --verb=bind --resource=clusterroles \
+      --resource-name=system:openshift:scc:anyuid --resource-name=system:openshift:scc:nonroot-v2
+    # once per project (for a service account: --serviceaccount=<project>:<name>)
+    oc -n <project> create rolebinding kdps-grant-scc --clusterrole=kdps-grant-scc --user=<account>
+    ```
+
+    KDPS then grants each release its own RoleBinding per SCC, `kdps-scc-<scc>-<release>`, labelled
+    `app.kubernetes.io/managed-by=ambari-kdps` and `ambari.clemlab.com/release=<release>`, and deletes it
+    when the release is uninstalled. Installing another service in the project never changes it.
+
+  When the platform team made the grant, the uninstall lists the matching
+  `oc adm policy remove-scc-from-user` commands, since KDPS cannot take that grant back. They leave
+  out the service accounts another KDPS release of the project still uses (OpenMetadata and
+  JupyterHub both use the project's `default` service account). Likewise, a binding of the
+  uninstalled release that another release still depends on is handed over to that release, or
+  kept, with the commands to run before deleting it. A GitOps deploy never grants an SCC: it
+  checks, and stops before committing when one is missing, so use the first way. The shared
+  `kdps-scc-<scc>` RoleBinding of earlier versions is left in place; the uninstall suggests deleting
+  it once no remaining release depends on it.
 * **Certificates.** cert-manager ClusterIssuers are not visible to such an account. Use the Ambari
   internal CA (the default) or a certificate issued by your own CA; add that CA under KDPS →
   Truststores so the deployed services trust each other.
