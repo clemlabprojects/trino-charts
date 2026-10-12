@@ -30,6 +30,10 @@ spec:
   template:
     metadata:
       name: {{ template "superset.fullname" . }}-init-db
+      # The release label admits the job to the bundled PostgreSQL when its NetworkPolicy is limited to the release.
+      labels:
+        app: {{ template "superset.name" . }}-init-db
+        release: {{ .Release.Name }}
       {{- if .Values.init.podAnnotations }}
       annotations: {{- toYaml .Values.init.podAnnotations | nindent 8 }}
       {{- end }}
@@ -60,6 +64,8 @@ spec:
                 OAuth-authenticated users then get "Access is Denied" on
                 Settings → User Info even when they have Admin role. */}}
           {{- include "superset.security.env" . | nindent 10 }}
+          {{- include "superset.connections.env" . | nindent 10 }}
+          {{- include "superset.admin.passwordEnv" . | nindent 10 }}
           {{- /* superset.admin.env mirrors what runtime pods see; kept for parity
                 so the init job is a faithful dry-run of runtime configuration. */}}
           {{- include "superset.admin.env" . | nindent 10 }}

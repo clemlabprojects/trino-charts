@@ -17,6 +17,18 @@ External URL:
 Login: {{ .Values.global.security.adminUsers | default "admin" }}
 Auth mode: {{ .Values.global.security.auth.mode }}
 {{- end }}
+{{- $adminPassword := .Values.openmetadata.config.authorization.adminPassword | default dict }}
+{{- if eq (include "openmetadata.authProvider" .) "basic" }}
+{{- if $adminPassword.existingSecret }}
+
+The administrators sign in with the password in the Secret {{ $adminPassword.existingSecret }}:
+  kubectl -n {{ .Release.Namespace }} get secret {{ $adminPassword.existingSecret }} -o jsonpath='{.data.{{ $adminPassword.passwordKey | default "password" }}}' | base64 -d
+{{- else }}
+
+The administrators sign in with OpenMetadata's default password "admin": change it at once, or set
+openmetadata.config.authorization.adminPassword.existingSecret.
+{{- end }}
+{{- end }}
 
 {{- if .Values.ingestion.enabled }}
 

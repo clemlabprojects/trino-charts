@@ -83,6 +83,7 @@ spec:
               {{- toYaml .Values.extraEnvRaw | nindent 12 }}
             {{- end }}
             {{ include "superset.security.env" . | nindent 12 }}
+            {{- include "superset.connections.env" . | nindent 12 }}
             {{ include "superset.truststore.env" . | nindent 12 }}
           envFrom:
             - secretRef:

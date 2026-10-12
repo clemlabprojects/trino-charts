@@ -35,3 +35,12 @@
   echo "Visit http://127.0.0.1:8088 to use your application"
   kubectl port-forward service/superset 8088:8088 --namespace {{ .Release.Namespace }}
 {{- end }}
+{{- if and .Values.init.enabled .Values.init.createAdmin }}
+
+2. Sign in as the administrator '{{ .Values.init.adminUser.username }}'. Its password is in the Secret {{ include "superset.admin.secretName" . }}:
+  kubectl get secret {{ include "superset.admin.secretName" . }} --namespace {{ .Release.Namespace }} -o jsonpath='{.data.{{ .Values.init.adminUser.passwordKey | default "password" }}}' | base64 -d
+{{- $mode := ((.Values.global.security).auth | default dict).mode | default "none" }}
+{{- if and (has $mode (list "ldap" "ad" "oidc")) (not ((.Values.global.security).auth | default dict).localLoginFallback) }}
+  With the {{ $mode }} security profile, local accounts sign in only while global.security.auth.localLoginFallback is true.
+{{- end }}
+{{- end }}

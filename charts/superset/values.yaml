@@ -48,6 +48,11 @@ global:
     # Supported modes: none | ldap | ad | oidc
     auth:
       mode: none
+      # Break-glass local sign-in for the ldap, ad and oidc modes: a local account (the administrator the init job
+      # creates) may sign in when the directory or the identity provider is unavailable, on the normal login form
+      # (ldap, ad) or on /login/local (oidc). Off by default: while it is on, anyone who reaches Superset can try the
+      # local passwords. Not used in mode none, where local accounts are the only way to sign in.
+      localLoginFallback: false
       ldap:
         url: ""
         bindDn: ""
@@ -496,6 +501,7 @@ supersetNode:
     db_host: '{{ .Release.Name }}-postgresql'
     db_port: "5432"
     db_user: superset
+    # Not used when postgresql.auth.existingSecret is set: the pods then read the password from that Secret.
     db_pass: superset
     db_name: superset
   env: {}
@@ -937,7 +943,17 @@ init:
     firstname: Superset
     lastname: Admin
     email: admin@superset.com
-    password: admin
+    # -- Password of the administrator. The init job reads it from a Secret, never from its script: existingSecret
+    # names a Secret holding it under passwordKey. Without one, the chart keeps it in the Secret
+    # <fullname>-admin-password: this password when set, otherwise a random one generated at the first install and
+    # kept on upgrades and after an uninstall. Read it with:
+    # kubectl get secret <fullname>-admin-password -o jsonpath='{.data.password}' | base64 -d
+    password: ""
+    existingSecret: ""
+    passwordKey: password
+    # -- Also set the password of an administrator that already exists (superset fab reset-password). The init job
+    # only creates a missing administrator, so without this an existing one keeps the password it was created with.
+    resetPassword: false
   # -- List of initContainers
   # @default -- a container waiting for postgres
   initContainers:
@@ -961,14 +977,19 @@ init:
     echo "Initializing roles..."
     superset init
     {{ if .Values.init.createAdmin }}
+    # ADMIN_PASSWORD comes from the administrator's Secret (init job env), so the password is never part of this script.
     echo "Creating admin user..."
     superset fab create-admin \
                     --username {{ .Values.init.adminUser.username }} \
                     --firstname {{ .Values.init.adminUser.firstname }} \
                     --lastname {{ .Values.init.adminUser.lastname }} \
                     --email {{ .Values.init.adminUser.email }} \
-                    --password {{ .Values.init.adminUser.password }} \
+                    --password "$ADMIN_PASSWORD" \
                     || true
+    {{- if .Values.init.adminUser.resetPassword }}
+    echo "Setting the admin user's password..."
+    superset fab reset-password --username {{ .Values.init.adminUser.username }} --password "$ADMIN_PASSWORD"
+    {{- end }}
     {{- end }}
     {{ if .Values.init.loadExamples }}
     echo "Loading examples..."
@@ -1010,7 +1031,10 @@ postgresql:
 
   ## Authentication parameters
   auth:
-    ## The name of an existing secret that contains the postgres password.
+    ## The name of an existing secret that contains the postgres password (keys `password` for the user below and
+    ## `postgres-password` for the postgres administrator, see secretKeys). The Superset pods then read the password
+    ## of the user below from it, instead of supersetNode.connections.db_pass. PostgreSQL sets the passwords when it
+    ## initializes its volume only: keep the passwords the database already uses.
     existingSecret:
     ## PostgreSQL name for a custom user to create
     username: superset
@@ -1045,6 +1069,17 @@ postgresql:
     service:
       ports:
         postgresql: "5432"
+    ## The PostgreSQL chart's NetworkPolicy. With allowExternal false, only the pods of this release reach the
+    ## database: the rule below admits them (they all carry the label release=<release name>).
+    networkPolicy:
+      allowExternal: true
+      extraIngress:
+        - ports:
+            - port: 5432
+          from:
+            - podSelector:
+                matchLabels:
+                  release: "{{ .Release.Name }}"
 
 # -- Configuration values for the Redis dependency.
 # ref: https://github.com/bitnami/charts/blob/master/bitnami/redis
@@ -1090,12 +1125,24 @@ redis:
   auth:
     ## Enable password authentication
     enabled: false
-    ## The name of an existing secret that contains the redis password.
+    ## The name of an existing secret that contains the redis password. With auth enabled, the Superset pods read
+    ## the password from it, instead of supersetNode.connections.redis_password.
     existingSecret: ""
-    ## Name of the key containing the secret.
-    existingSecretKey: ""
+    ## Name of the key containing the password (default redis-password).
+    existingSecretPasswordKey: ""
     ## Redis password
     password: superset
+  ## The Redis chart's NetworkPolicy. With allowExternal false, only the pods of this release reach Redis: the rule
+  ## below admits them (they all carry the label release=<release name>).
+  networkPolicy:
+    allowExternal: true
+    extraIngress:
+      - ports:
+          - port: 6379
+        from:
+          - podSelector:
+              matchLabels:
+                release: "{{ .Release.Name }}"
   ##
   ## Master configuration
   ##

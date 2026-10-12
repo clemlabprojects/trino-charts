@@ -69,8 +69,64 @@ SECURITY_OIDC_CLIENT_SECRET: {{ ($auth.oidc | default dict).clientSecret | defau
 {{- end -}}
 
 {{/*
+The Secret holding the administrator's password: init.adminUser.existingSecret, or the chart's own
+<fullname>-admin-password (secret-admin.yaml).
+*/}}
+{{- define "superset.admin.secretName" -}}
+{{- .Values.init.adminUser.existingSecret | default (printf "%s-admin-password" (include "superset.fullname" .)) -}}
+{{- end -}}
+
+{{/* The administrator's password for the init script ($ADMIN_PASSWORD), read from its Secret. */}}
+{{- define "superset.admin.passwordEnv" -}}
+{{- if .Values.init.createAdmin }}
+- name: ADMIN_PASSWORD
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "superset.admin.secretName" . | quote }}
+      key: {{ .Values.init.adminUser.passwordKey | default "password" | quote }}
+{{- end }}
+{{- end -}}
+
+{{/* Whether the pods read the database password from postgresql.auth.existingSecret. */}}
+{{- define "superset.db.passwordSecret" -}}
+{{- if and .Values.postgresql.enabled .Values.postgresql.auth.existingSecret }}true{{ end }}
+{{- end -}}
+
+{{/* Whether the pods read the Redis password from redis.auth.existingSecret. */}}
+{{- define "superset.redis.passwordSecret" -}}
+{{- if and .Values.redis.enabled .Values.redis.auth.enabled .Values.redis.auth.existingSecret }}true{{ end }}
+{{- end -}}
+
+{{/* Whether Superset connects to Redis with a password (Redis URL and results backend). */}}
+{{- define "superset.redis.hasPassword" -}}
+{{- if or .Values.supersetNode.connections.redis_password (include "superset.redis.passwordSecret" .) }}true{{ end }}
+{{- end -}}
+
+{{/*
+The database and Redis passwords the pods read from the Secrets of the bundled PostgreSQL and Redis
+(postgresql.auth.existingSecret, redis.auth.existingSecret) through secretKeyRef, rather than from the env Secret:
+an explicit env var wins over the key of the same name that envFrom reads.
+*/}}
+{{- define "superset.connections.env" -}}
+{{- if include "superset.db.passwordSecret" . }}
+- name: DB_PASS
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.postgresql.auth.existingSecret | quote }}
+      key: {{ ((.Values.postgresql.auth.secretKeys | default dict).userPasswordKey | default "password") | quote }}
+{{- end }}
+{{- if include "superset.redis.passwordSecret" . }}
+- name: REDIS_PASSWORD
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.redis.auth.existingSecret | quote }}
+      key: {{ .Values.redis.auth.existingSecretPasswordKey | default "redis-password" | quote }}
+{{- end }}
+{{- end -}}
+
+{{/*
 One checksum over everything secret the pods read (database and Redis connections, datasource files, extra secret
-files and env vars, the init script with the admin password, the credentials of the security profile), so that the
+files and env vars, the init script, the credentials of the security profile), so that the
 pods restart when any of it changes, including what they read through secretKeyRef. A single hash of all of it:
 separate hashes, which anyone allowed to read Deployments can see, would let them test guesses of each weak password
 on its own.
@@ -105,6 +161,11 @@ to be passed in extraEnv) then stop showing in the pod spec.
 {{- if $auth.mode }}
 - name: SECURITY_AUTH_MODE
   value: {{ $auth.mode | quote }}
+{{- if has $auth.mode (list "ldap" "ad" "oidc") }}
+# Break-glass local sign-in (global.security.auth.localLoginFallback), off unless turned on.
+- name: SECURITY_LOCAL_LOGIN_FALLBACK
+  value: {{ $auth.localLoginFallback | default false | quote }}
+{{- end }}
 {{- if eq $auth.mode "ldap" }}
 - name: SECURITY_LDAP_URL
   value: {{ $auth.ldap.url | quote }}
@@ -320,7 +381,7 @@ def _kdps_dynamic_roles(sm, role_keys):
 # -------------------------------------------------------------------------------------------
 
 # Redis Base URL
-{{- if .Values.supersetNode.connections.redis_password }}
+{{- if include "superset.redis.hasPassword" . }}
 REDIS_BASE_URL=f"{env('REDIS_PROTO')}://{env('REDIS_USER', '')}:{env('REDIS_PASSWORD')}@{env('REDIS_HOST')}:{env('REDIS_PORT')}"
 {{- else }}
 REDIS_BASE_URL=f"{env('REDIS_PROTO')}://{env('REDIS_HOST')}:{env('REDIS_PORT')}"
@@ -366,9 +427,10 @@ if AUTH_TYPE == "OIDC":
     AUTH_TYPE = AUTH_OAUTH
     # Break-glass local login for OIDC. OAuth has no password form, so rather than touch the OAuth
     # login page (risking normal SSO), we expose a separate /login/local form that authenticates a
-    # local DB account — usable when the IdP is unreachable. Enabled by default; disable with
-    # SECURITY_LOCAL_LOGIN_FALLBACK=false. Only accounts with a real local password can pass.
-    _OIDC_LOCAL_FALLBACK = env('SECURITY_LOCAL_LOGIN_FALLBACK', 'true').strip().lower() not in ('false', '0', 'no')
+    # local DB account — usable when the IdP is unreachable. Off unless SECURITY_LOCAL_LOGIN_FALLBACK=true
+    # (global.security.auth.localLoginFallback): while on, anyone who reaches Superset can try the local
+    # passwords. Only accounts with a real local password can pass.
+    _OIDC_LOCAL_FALLBACK = env('SECURITY_LOCAL_LOGIN_FALLBACK', 'false').strip().lower() in ('true', '1', 'yes')
     _LOCAL_LOGIN_HTML = """<!doctype html><html><head><meta charset="utf-8"><title>Local sign in</title>
 <meta name="viewport" content="width=device-width, initial-scale=1"><style>
 body{font-family:system-ui,Arial,sans-serif;background:#f5f7fa;margin:0}
@@ -604,11 +666,12 @@ elif AUTH_TYPE in ("LDAP", "AD"):
         return None
 
     # Break-glass local login: when the directory is unreachable, allow a local DB account (the
-    # bootstrap admin) to sign in through the same username/password form. Enabled by default; set
-    # SECURITY_LOCAL_LOGIN_FALLBACK=false to disable. Only accounts that carry a real local password
-    # pass — LDAP auto-created users have no usable DB password — so this is a genuine break-glass,
-    # not a bypass for every account.
-    _LOCAL_FALLBACK = env('SECURITY_LOCAL_LOGIN_FALLBACK', 'true').strip().lower() not in ('false', '0', 'no')
+    # bootstrap admin) to sign in through the same username/password form. Off unless
+    # SECURITY_LOCAL_LOGIN_FALLBACK=true (global.security.auth.localLoginFallback): while on, any
+    # password the directory rejects is tried against the local accounts. Only accounts that carry a
+    # real local password pass — LDAP auto-created users have no usable DB password — so this is a
+    # genuine break-glass, not a bypass for every account.
+    _LOCAL_FALLBACK = env('SECURITY_LOCAL_LOGIN_FALLBACK', 'false').strip().lower() in ('true', '1', 'yes')
 
     class KdpsLdapSecurityManager(SupersetSecurityManager):
         def auth_user_ldap(self, username, password):
@@ -751,7 +814,7 @@ class CeleryConfig:
 CELERY_CONFIG = CeleryConfig
 RESULTS_BACKEND = RedisCache(
       host=env('REDIS_HOST'),
-      {{- if .Values.supersetNode.connections.redis_password }}
+      {{- if include "superset.redis.hasPassword" . }}
       password=env('REDIS_PASSWORD'),
       {{- end }}
       port=env('REDIS_PORT'),

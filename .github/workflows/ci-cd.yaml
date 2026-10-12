@@ -175,7 +175,9 @@ jobs:
         with:
           version: v3.19.0
       - name: Run template checks
-        run: ./tests/openmetadata/test-servicemonitor.sh
+        run: |
+          ./tests/openmetadata/test-servicemonitor.sh
+          ./tests/openmetadata/test-credentials.sh
 
   test-ambari:
     runs-on: ubuntu-latest
@@ -213,7 +215,9 @@ jobs:
         with:
           version: v3.19.0
       - name: Run template checks
-        run: ./tests/superset/test-secrets.sh
+        run: |
+          ./tests/superset/test-secrets.sh
+          ./tests/superset/test-admin-and-datastores.sh
 
   docs:
     runs-on: ubuntu-latest

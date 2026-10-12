@@ -236,6 +236,17 @@ openmetadata:
       # admin emails that won't match real OIDC tokens (causing "Account already exists" on first login).
       # Set this to the email domain your IdP issues for these users (e.g. dev21.hadoop.clemlab.com).
       principalDomain: ""
+      # Basic authentication only (global.security.auth.mode basic): OpenMetadata creates the administrators above
+      # with the password "admin". With existingSecret set, a Job (templates/job-admin-password.yaml) sets each of
+      # them to the password that Secret holds under passwordKey once the server has created them, after the
+      # install, and after an upgrade too when resetOnUpgrade is true (for a release that still has the default).
+      # It runs OpenMetadata's own reset-password command: the password stays out of the server configuration.
+      adminPassword:
+        existingSecret: ""
+        passwordKey: password
+        resetOnUpgrade: false
+        # Resources of the Job, none by default like the migrate step, which runs the same command line.
+        resources: {}
 
     # Airflow / pipeline service client — wired by Ambari ingestion-airflow binding
     pipelineServiceClientConfig:
@@ -243,6 +254,13 @@ openmetadata:
       apiEndpoint: ""
       healthCheckInterval: 300
       ingestionIpInfoEnabled: false
+      # The Airflow account the server deploys and runs pipelines with. Without existingSecret the server uses
+      # OpenMetadata's default (admin/admin), which the bundled Airflow creates unless dependencies.airflow
+      # createUserJob.env passes it AIRFLOW_ADMIN_PASSWORD: give both the same Secret.
+      auth:
+        username: admin
+        existingSecret: ""
+        passwordKey: password
 
     # Hadoop connectors — wired by Ambari hive-connector / trino-connector bindings
     connectors:
@@ -301,7 +319,26 @@ postgresql:
     # Use a stable default so reinstalls on an existing PVC don't get a mismatched
     # random password. Override via KDPS / existingSecret for production.
     password: "openmetadata"
+    # A Secret holding the passwords instead (keys "password" for the user above and "postgres-password"); the
+    # OpenMetadata server reads its database password from it too. PostgreSQL sets the passwords only when it
+    # initializes its volume: keep the ones the database already uses. The KDPS view generates it per release.
+    existingSecret: ""
   primary:
+    # The PostgreSQL chart's NetworkPolicy. With allowExternal false, only the pods of this release reach the
+    # database: the OpenMetadata pods (app.kubernetes.io/instance) and the Airflow ones (release), whose scheduler
+    # reads the ingestion-bot token from it.
+    networkPolicy:
+      allowExternal: true
+      extraIngress:
+        - ports:
+            - port: 5432
+          from:
+            - podSelector:
+                matchLabels:
+                  app.kubernetes.io/instance: "{{ .Release.Name }}"
+            - podSelector:
+                matchLabels:
+                  release: "{{ .Release.Name }}"
     persistence:
       enabled: true
       size: "50Gi"
@@ -470,6 +507,26 @@ dependencies:
       useHelmHooks: false
     createUserJob:
       useHelmHooks: false
+      # The administrator the OpenMetadata server deploys pipelines with
+      # (openmetadata.config.pipelineServiceClientConfig.auth). Its password comes from the env var
+      # AIRFLOW_ADMIN_PASSWORD when env sets one from a Secret, e.g.
+      #   env: [{name: AIRFLOW_ADMIN_PASSWORD, valueFrom: {secretKeyRef: {name: <secret>, key: password}}}]
+      # and from webserver.defaultUser.password otherwise. "users create" leaves an existing account as it is,
+      # so the password is then set as well: the account always has the password the server is given.
+      args:
+        - "bash"
+        - "-c"
+        - |-
+          set -eu
+          password="${AIRFLOW_ADMIN_PASSWORD:-{{ .Values.webserver.defaultUser.password }}}"
+          if [ -z "$password" ]; then
+            echo "No password for the Airflow administrator: set AIRFLOW_ADMIN_PASSWORD (createUserJob.env) or webserver.defaultUser.password." >&2
+            exit 1
+          fi
+          airflow users create -r "{{ .Values.webserver.defaultUser.role }}" -u "{{ .Values.webserver.defaultUser.username }}" \
+            -e "{{ .Values.webserver.defaultUser.email }}" -f "{{ .Values.webserver.defaultUser.firstName }}" \
+            -l "{{ .Values.webserver.defaultUser.lastName }}" -p "$password"
+          airflow users reset-password -u "{{ .Values.webserver.defaultUser.username }}" -p "$password"
 
     # Airflow gets its OWN bundled postgres (separate from the OM main chart's
     # `openmetadata-postgresql`). Upstream openmetadata-dependencies disables
@@ -526,10 +583,24 @@ dependencies:
         username: airflow_user
         password: airflow_pass
         database: airflow_db
+        # A Secret holding the passwords instead (keys "password" and "postgres-password"). Give Airflow the
+        # matching connection with data.metadataSecretName (a Secret with key "connection"); the KDPS view
+        # generates one Secret with the three keys per release.
+        existingSecret: ""
       primary:
         persistence:
           enabled: true
           size: 10Gi
+        # With allowExternal false, only the Airflow pods of this release reach their database.
+        networkPolicy:
+          allowExternal: true
+          extraIngress:
+            - ports:
+                - port: 5432
+              from:
+                - podSelector:
+                    matchLabels:
+                      release: "{{ .Release.Name }}"
       # The clemlab-repackaged postgresql 17.0.1 chart ships networkpolicy
       # templates that read `.Values.networkPolicy.enabled` but its values.yaml
       # has no `networkPolicy:` block (stripped in the repackage) -> nil pointer
@@ -539,6 +610,9 @@ dependencies:
         enabled: false
 
     data:
+      # A Secret with key "connection" (postgresql://airflow_user:<password>@openmetadata-airflow-postgresql:5432/
+      # airflow_db?sslmode=disable) replaces metadataConnection below, so its password stays out of the values.
+      metadataSecretName: ~
       # Mirrors the airflow-postgres credentials above. Set host explicitly to
       # the renamed bundled postgres so the chart's
       # `<release>-postgresql.<ns>` default doesn't kick in and accidentally
@@ -799,6 +873,9 @@ dependencies:
               mountPath: /var/run/krb5
     scheduler:
       replicas: 1
+      # The KDPS view reads the ingestion-bot token from the OpenMetadata database through this scheduler, with
+      # the password in /opt/airflow/secrets/postgresql-password: with postgresql.auth.existingSecret it mounts
+      # that Secret's "password" key there (extraVolumes / extraVolumeMounts).
       # Long-running pods keep a fresh ticket via a kinit-renew sidecar (same auto-detect +
       # tolerant logic, looped) — mainly so the api-server/managed-apis path can use Kerberos.
       extraContainers:
