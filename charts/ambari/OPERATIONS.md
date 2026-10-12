@@ -263,11 +263,140 @@ checkout of the chart instead, check `appVersion` in `Chart.yaml`, and set `imag
 
 ### Pointing the view at a cluster
 
+* **The pod's own ServiceAccount** — with `inClusterServiceAccount.enabled=true`, KDPS →
+  Configuration → Ambari's ServiceAccount → *Connect with this ServiceAccount*. Nothing to upload
+  and no password to keep, so it is the way in when the OpenShift console only signs in through
+  SSO. See the next section.
 * **OpenShift** — KDPS → Configuration → log in with the API URL and an account that can deploy.
   Held in the Ambari database, so it survives restarts and upgrades.
 * **Kubernetes** — KDPS → Configuration → upload a kubeconfig. That is a file under
   `/var/lib/ambari-server`, encrypted with the master key, and it needs `persistence.enabled=true`.
   If the file holds several contexts, pick one on the same page; KDPS and Helm both use it.
+
+Whichever was saved last is used, by every user of the view. Saving another one switches to it.
+
+### Connecting with Ambari's own ServiceAccount
+
+When the cluster's console only signs in through SSO, KDPS has no password to log in with, and the
+token of a kubeconfig copied from `oc login` expires within a day. KDPS can act instead as the
+ServiceAccount the Ambari pod runs as (`serviceAccount` in the values: `ambari` in the release's
+namespace by default):
+
+1. **Turn it on.** Set `inClusterServiceAccount.enabled=true` and sync. The pod then has the
+   ServiceAccount's token even when the ServiceAccount opts out of mounting it (one your platform
+   team created with `automountServiceAccountToken: false`), and the release notes give the grants
+   below for its name. The connection is in the KDPS view of the image this chart names
+   (`appVersion`) and later ones: with `image.tag` set to an earlier image, Configuration may not
+   offer it.
+2. **Grant it, in each project KDPS deploys to,** what a deploy needs. The chart grants nothing:
+   which projects KDPS manages is the platform team's decision. On OpenShift, with the release in
+   `kdps`:
+
+   ```
+   oc -n <project> create rolebinding kdps-admin \
+     --clusterrole=admin --serviceaccount=kdps:ambari
+   oc -n <project> create rolebinding kdps-monitoring-edit \
+     --clusterrole=monitoring-edit --serviceaccount=kdps:ambari
+   ```
+
+   `admin` lets KDPS install, upgrade and remove releases in the project; `monitoring-edit` lets it
+   create their ServiceMonitors, which the autoscaling and the dashboards rely on (user workload
+   monitoring must be enabled on the cluster). The ServiceAccount is then an account limited to its
+   own projects, and "An account limited to its own projects" below applies as it is: projects
+   created beforehand, KEDA, SCC grants (the commands there take `--serviceaccount=kdps:ambari` in
+   place of `--user`), certificates.
+
+   On Kubernetes, `admin` covers the releases themselves. ServiceMonitors, and KEDA ScaledObjects when
+   autoscaling is used, need a Role of their own unless your Prometheus Operator and KEDA installs
+   aggregate those rights to `admin`:
+
+   ```yaml
+   apiVersion: rbac.authorization.k8s.io/v1
+   kind: Role
+   metadata:
+     name: kdps-monitoring-autoscaling
+     namespace: <project>
+   rules:
+     - apiGroups: [monitoring.coreos.com]
+       resources: [servicemonitors, podmonitors, prometheusrules]
+       verbs: [get, list, watch, create, update, patch, delete]
+     - apiGroups: [keda.sh]
+       resources: [scaledobjects, triggerauthentications]
+       verbs: [get, list, watch, create, update, patch, delete]
+   ---
+   apiVersion: rbac.authorization.k8s.io/v1
+   kind: RoleBinding
+   metadata:
+     name: kdps-monitoring-autoscaling
+     namespace: <project>
+   roleRef:
+     apiGroup: rbac.authorization.k8s.io
+     kind: Role
+     name: kdps-monitoring-autoscaling
+   subjects:
+     - kind: ServiceAccount
+       name: ambari
+       namespace: kdps
+   ```
+3. **Connect.** Sign in to Ambari, KDPS → Configuration. *Ambari's ServiceAccount* shows who KDPS
+   will act as (`system:serviceaccount:kdps:ambari`) and the API server it reaches.
+   *Connect with this ServiceAccount* saves the choice for every user and checks that the cluster
+   answers. *Cluster prerequisites*, on the same page, then checks the grants of step 2 for a
+   project.
+
+Kubernetes renews the token in the pod before it expires, and KDPS reads the current one for every
+call, Helm's included: there is nothing to rotate. Revoking access is removing the RoleBindings.
+
+### A kubeconfig for a ServiceAccount
+
+When Ambari does not run in the cluster it manages, or should act as an account other than its own
+pod's, give KDPS a kubeconfig holding a ServiceAccount token instead: it is an ordinary kubeconfig
+upload. Create the account in a project of its own and grant it per project as in step 2 above
+(`--serviceaccount=kdps-system:kdps-deployer`). Then write the kubeconfig:
+
+```
+oc -n kdps-system create serviceaccount kdps-deployer
+# A token that does not expire, held in a Secret; deleting the Secret revokes it.
+oc -n kdps-system apply -f - <<'YAML'
+apiVersion: v1
+kind: Secret
+metadata:
+  name: kdps-deployer-token
+  annotations:
+    kubernetes.io/service-account.name: kdps-deployer
+type: kubernetes.io/service-account-token
+YAML
+TOKEN=$(oc -n kdps-system get secret kdps-deployer-token -o jsonpath='{.data.token}' | base64 -d)
+CA=$(oc -n kdps-system get secret kdps-deployer-token -o jsonpath='{.data.ca\.crt}')
+SERVER=$(oc whoami --show-server)
+cat > kdps-deployer.kubeconfig <<KUBECONFIG
+apiVersion: v1
+kind: Config
+clusters:
+- name: cluster
+  cluster:
+    server: ${SERVER}
+    certificate-authority-data: ${CA}
+users:
+- name: kdps-deployer
+  user:
+    token: ${TOKEN}
+contexts:
+- name: kdps-deployer
+  context:
+    cluster: cluster
+    user: kdps-deployer
+    namespace: <project>
+current-context: kdps-deployer
+KUBECONFIG
+```
+
+Upload `kdps-deployer.kubeconfig` under KDPS → Configuration, then delete the local copy: it is a
+credential. KDPS keeps it encrypted with the master key, on the PVC. If the API server presents a
+certificate from your own CA (a named certificate on OpenShift), put that CA, base64-encoded, in
+`certificate-authority-data` instead. A token from `oc create token` works too, but it expires
+(after an hour by default) and KDPS cannot renew it: the view then shows the cluster disconnected
+until a new kubeconfig is uploaded.
 
 ### An account limited to its own projects
 
@@ -656,6 +785,17 @@ chart rejects that combination at template time, so check the pod is `Ready` fir
 **Login page loads, KDPS tab is empty.**
 The view is installed but not configured. KDPS → Configuration.
 
+**`The Ambari pod has no ServiceAccount token at /var/run/secrets/kubernetes.io/serviceaccount/token`.**
+KDPS was asked to connect with the pod's ServiceAccount, and the pod has none mounted: the
+ServiceAccount opts out of mounting it (`automountServiceAccountToken: false`). Set
+`inClusterServiceAccount.enabled=true` and sync; the new pod has it. The configuration KDPS used
+before is unchanged meanwhile.
+
+**Connected with the ServiceAccount, but deploys stop with `forbidden`.**
+The ServiceAccount has no grant in that project yet (§2, "Connecting with Ambari's own
+ServiceAccount", step 2). *Cluster prerequisites* on the KDPS Configuration page lists what is
+missing for a project.
+
 **`Master key initialization failed` in the server log.**
 The master key is not reaching the server. Anything the view encrypts from here on uses the
 fallback passphrase, so fix it before uploading a kubeconfig.
@@ -786,6 +926,10 @@ ones, and the two no longer trust each other: Superset cannot connect to Trino, 
 
 * The server runs as an arbitrary non-root UID under `restricted-v2`. No added SCC, no privileged
   container, no `runAsUser`.
+* The chart grants its ServiceAccount nothing. Its token is in the pod, as in any pod whose
+  ServiceAccount does not opt out of it, so whoever controls the pod acts with the grants given to
+  that ServiceAccount: when KDPS connects with it, give them project by project (§2), never
+  cluster-wide.
 * There are no Ambari agents, so `agent.enabled` is off. That removes the agent SSL listeners and
   the certificate authority Ambari would otherwise generate for them. Turn it on only if this
   server also manages Ambari agents — it brings the keystore requirements back with it.

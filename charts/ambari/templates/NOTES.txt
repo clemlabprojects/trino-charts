@@ -62,6 +62,17 @@ install with route.tls.mode=edge and switch afterwards.
 {{- end }}
 
 Then sign in as admin{{ if $adminSecret }} with that password{{ end }} and point the KDPS view at this cluster, once:
+{{- if .Values.inClusterServiceAccount.enabled }}
+{{- $sa := printf "%s:%s" .Release.Namespace (include "ambari.serviceAccountName" .) }}
+  * In-cluster: KDPS -> Configuration -> "Connect with this ServiceAccount" (inClusterServiceAccount).
+                KDPS then acts as system:serviceaccount:{{ $sa }}, which this chart grants
+                nothing. In each project KDPS deploys to, grant it admin and, on OpenShift,
+                monitoring-edit (OPERATIONS.md §2):
+                  oc -n <project> create rolebinding kdps-admin --clusterrole=admin \
+                    --serviceaccount={{ $sa }}
+                  oc -n <project> create rolebinding kdps-monitoring-edit --clusterrole=monitoring-edit \
+                    --serviceaccount={{ $sa }}
+{{- end }}
   * OpenShift : KDPS -> Configuration -> log in with the API URL and an account that can deploy.
                 Stored in the Ambari database, so it survives pod restarts and upgrades.
   * Kubernetes: KDPS -> Configuration -> upload a kubeconfig. That one is a FILE under

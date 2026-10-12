@@ -340,10 +340,18 @@ spec:
 Once the server is up, sign in as `admin` with the first administrator password and configure the
 KDPS view once:
 
+* **This pod's ServiceAccount** — with `inClusterServiceAccount.enabled=true`, KDPS → Configuration →
+  *Connect with this ServiceAccount*. No credential to upload or store, and Kubernetes renews the
+  token itself: the way to connect when the OpenShift console only signs in through SSO. The value
+  mounts the token even when the ServiceAccount opts out of it. The chart grants the ServiceAccount
+  nothing: give it `admin` and, on OpenShift, `monitoring-edit` in each project KDPS deploys to
+  ([OPERATIONS.md](OPERATIONS.md) §2). It needs the image this chart names (`appVersion`) or a later
+  one: an earlier `image.tag` may not offer it.
 * **OpenShift** — KDPS → Configuration → log in with the API URL and an account that can deploy.
   Stored in the Ambari database, so it survives pod restarts and upgrades.
 * **Kubernetes** — KDPS → Configuration → upload a kubeconfig. That one is a file under
-  `/var/lib/ambari-server`, so keep `persistence.enabled=true`.
+  `/var/lib/ambari-server`, so keep `persistence.enabled=true`. A kubeconfig holding a ServiceAccount
+  token works the same way; OPERATIONS.md §2 shows how to write one.
 
 ## Updating the view without rebuilding the image
 

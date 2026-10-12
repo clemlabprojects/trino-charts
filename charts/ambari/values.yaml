@@ -7,7 +7,8 @@
 #   * the database — Ambari keeps its state, including the KDPS view's own configuration, in
 #     PostgreSQL. Production installs point at a database the customer already runs.
 #   * the cluster credential — the operator supplies it once through the KDPS UI (an OpenShift
-#     login, kept in the database, or an uploaded kubeconfig, kept on the claim: see `persistence`).
+#     login, kept in the database, or an uploaded kubeconfig, kept on the claim: see `persistence`),
+#     or lets KDPS use this pod's own ServiceAccount (see `inClusterServiceAccount`).
 
 nameOverride: ""
 fullnameOverride: ""
@@ -255,6 +256,25 @@ serviceAccount:
   create: true
   name: ""
   annotations: {}
+
+# --- connecting KDPS with this pod's ServiceAccount -----------------------------------------
+# KDPS can reach the cluster API as the ServiceAccount the pod runs as (serviceAccount above) rather
+# than with an uploaded kubeconfig or an OpenShift username and password: in KDPS, Configuration >
+# Cluster connection > "Ambari's ServiceAccount". There is then no credential to upload or keep, and
+# it is the way to connect to an OpenShift whose console only signs in through SSO. Kubernetes mounts
+# the token into the pod and renews it itself; KDPS reads it again on every call.
+#
+# On, the pod is given the token even when the ServiceAccount opts out of mounting it (one the
+# platform team created with automountServiceAccountToken: false), and the release notes give the
+# grants it needs. Off, the chart leaves the token to the ServiceAccount, as it always has: Kubernetes
+# mounts it by default. The connection is in the KDPS view of the image this chart names (appVersion)
+# and later ones; an earlier image.tag may not offer it.
+#
+# The chart grants the ServiceAccount nothing either way. The platform team grants it, in each project
+# KDPS deploys to, the admin role and, on OpenShift, monitoring-edit (OPERATIONS.md, "Connecting with
+# Ambari's own ServiceAccount").
+inClusterServiceAccount:
+  enabled: false
 
 # ephemeral-storage is what the pod keeps on its node's disk: the server's logs (unless
 # logs.persistence puts them on a claim), the extracted views, Helm's cache and the pod logs. Without
