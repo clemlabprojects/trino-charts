@@ -158,11 +158,20 @@ networkPolicy:
   extraIngress: []
   extraEgress: []
 
+# -- Prometheus ServiceMonitor for the admin port (/prometheus). It is always created in the release
+# namespace, the only namespace it scrapes. labels.release is the Helm release name of the
+# kube-prometheus-stack that should scrape it; leave it out on OpenShift, whose user-workload
+# monitoring picks up every ServiceMonitor of the project. A Prometheus that only reads ServiceMonitors
+# from its own namespace must list this namespace in its serviceMonitorNamespaceSelector.
 serviceMonitor:
   enabled: false
   interval: "30s"
   labels: {}
-  namespace: ""
+
+# -- Older place for the kube-prometheus-stack release name, used when serviceMonitor.labels.release
+# is not set.
+monitoring:
+  release: ""
 
 # -----------------------------------------------------------------------------
 # OpenMetadata server configuration — translated to env vars in the deployment
