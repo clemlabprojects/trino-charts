@@ -4,10 +4,10 @@
 # the KDPS view, which talks to the Kubernetes/OpenShift API of the cluster it runs in.
 #
 # Two things are deliberately NOT provisioned by this chart:
-#   * the database — Ambari keeps all of its state, including the KDPS view's own configuration,
-#     in PostgreSQL. Production installs point at a database the customer already runs.
+#   * the database — Ambari keeps its state, including the KDPS view's own configuration, in
+#     PostgreSQL. Production installs point at a database the customer already runs.
 #   * the cluster credential — the operator supplies it once through the KDPS UI (an OpenShift
-#     login, or an uploaded kubeconfig). See `persistence` below for why that survives restarts.
+#     login, kept in the database, or an uploaded kubeconfig, kept on the claim: see `persistence`).
 
 nameOverride: ""
 fullnameOverride: ""
@@ -128,18 +128,29 @@ api:
     existingSecret: ""              # kubernetes.io/tls; defaults to the Vault-synced one when set
     port: 8443
 
-# --- the cluster the KDPS view drives -------------------------------------------------------
-# The view authenticates with an OpenShift login (API URL + user, entered once in the UI) or an
-# uploaded kubeconfig. Both are stored by Ambari: the OpenShift login in the database, the
-# kubeconfig as a file under /var/lib/ambari-server — which is why persistence is on by default.
-#
-# The claim is mounted on two sub-paths rather than over /var/lib/ambari-server as a whole:
-#   keys/                        the master key and credential store, which encrypt values in
-#                                the database and so must not be regenerated on every restart
-#   resources/views/k8s-view-data/  the view's working directory: the uploaded kubeconfig and cache
+# --- what the pod keeps on disk -------------------------------------------------------------
+# Ambari keeps its state in the database, but the KDPS view keeps some of its own on disk, and that
+# has to survive a new pod (an upgrade, a node drain, an eviction). The claim is mounted on two
+# sub-paths rather than over /var/lib/ambari-server as a whole:
+#   resources/views/k8s-view-data/  the view's working directory: the KDPS internal CA that signs the
+#                                   certificates of the services KDPS deploys (<instance>/ca),
+#                                   operation parameters and logs, the Helm repository and registry
+#                                   settings, Flux workspaces, and the uploaded kubeconfig
+#   keys/                           Ambari's credential store, shared by the server and the view: the
+#                                   Git tokens and SSH keys of GitOps releases. It is encrypted with
+#                                   the master key, which is not on the claim (see masterKey)
 # Everything else under /var/lib/ambari-server belongs to the image and is refreshed by an upgrade.
+# An init container copies into keys/ the files of the image's that the claim does not have yet, and
+# never replaces one.
+#
+# Back the claim up with the database and the master key (OPERATIONS.md §7). Without it, every new pod
+# signs certificates with a new internal CA, so the services deployed before and after it no longer
+# trust each other, and forgets the Git credentials. So the chart refuses enabled=false unless
+# acknowledgeEphemeral=true says that is intended: a throwaway install, never one that deploys
+# services others rely on.
 persistence:
   enabled: true
+  acknowledgeEphemeral: false
   existingClaim: ""
   storageClass: ""
   accessModes: [ReadWriteOnce]

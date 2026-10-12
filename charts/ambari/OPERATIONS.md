@@ -317,8 +317,8 @@ project's usage against its ResourceQuota. What changes:
   `kdps-scc-<scc>` RoleBinding of earlier versions is left in place; the uninstall suggests deleting
   it once no remaining release depends on it.
 * **Certificates.** cert-manager ClusterIssuers are not visible to such an account. Use the Ambari
-  internal CA (the default) or a certificate issued by your own CA; add that CA under KDPS →
-  Truststores so the deployed services trust each other.
+  internal CA (the default, kept on the PVC: §3) or a certificate issued by your own CA; add that CA
+  under KDPS → Truststores so the deployed services trust each other.
 * **GitOps (Flux).** Works the same way; the chart source written for Flux is the chart repository
   configured in KDPS.
 
@@ -328,9 +328,20 @@ project's usage against its ResourceQuota. What changes:
 
 | | Why |
 | --- | --- |
-| the master key | everything encrypted with it becomes unreadable, including the uploaded kubeconfig |
-| the database | it is all of Ambari's state; the pod holds nothing else of value |
-| the PVC | it holds the uploaded kubeconfig. It is annotated `helm.sh/resource-policy: keep`, so `helm uninstall` leaves it behind on purpose |
+| the master key | everything encrypted with it becomes unreadable, including the credential store on the PVC and the uploaded kubeconfig |
+| the database | Ambari's state and the KDPS view's: settings, platform contexts, releases, the OpenShift login |
+| the PVC | what the KDPS view keeps on disk (below). It is annotated `helm.sh/resource-policy: keep`, so `helm uninstall` leaves it behind on purpose |
+
+The PVC is mounted on two sub-paths of `/var/lib/ambari-server`:
+
+| Sub-path | Holds | Lost with the PVC |
+| --- | --- | --- |
+| `resources/views/k8s-view-data/<instance>/ca/` | the **KDPS Internal CA** (`ambari-ca.crt`, `ambari-ca.key`), which signs the certificates of every service deployed with auto-generated TLS, and is the CA their truststores hold | KDPS generates a new CA the next time it needs one, such as at the next TLS deploy. The services deployed before it and those deployed after it no longer trust each other (Superset to Trino, for one), nor do clients outside KDPS that imported the old CA, until every TLS release is upgraded (§7) |
+| `keys/credentials.jceks` | Ambari's **credential store**, shared by the server and the view: the Git token or SSH key of each GitOps release | upgrading a GitOps release fails with `GitOps over HTTPS requires authToken or sshKey` unless its token or key is given again in the upgrade form; uninstalling it is refused until it has been deployed once more with them; pull-request states stop refreshing |
+| `resources/views/k8s-view-data/<instance>/` (the rest) | operation parameters and logs, Helm repository and registry settings, Flux workspaces, the uploaded kubeconfig | an operation in progress or retried runs without its parameters, past operation logs are gone, and the kubeconfig has to be uploaded again. Repository settings and Flux workspaces are built again when needed |
+
+`<instance>` is the name of the KDPS view instance. Chart 0.1.11 and earlier did not keep `keys/` on
+the PVC: see §4.
 
 Safe to change at any time: the image tag within the same Ambari line (moving to a new line is §4),
 the certificates, the route host, resources, the stop timeout and grace period, the logs settings,
@@ -346,8 +357,8 @@ version: read §4 first, or the new pod may not start, and `Recreate` has alread
 ## 4. Upgrading
 
 Change `image.tag` and let Argo CD sync. The pod is replaced; stacks, view jars and the rest of
-`/var/lib/ambari-server` come from the new image, which is why only the view's working directory is
-persisted rather than the whole directory.
+`/var/lib/ambari-server` come from the new image, which is why only the view's working directory and
+`keys/` are on the PVC (§3) rather than the whole directory.
 
 What else an upgrade needs depends on the Ambari **line**: the first three numbers of the image's
 version. Each line has a database schema of its own, and the server does not start on another
@@ -445,6 +456,40 @@ the new one starts, so prepare these before you sync:
   password is given through `extraEnv` (§2); the server then replaces the default before the pod is
   Ready. If you are not sure which applies, add the `extraEnv` entry anyway: once the password has
   changed it is not used.
+
+### From chart 0.1.11 or earlier
+
+Those charts kept Ambari's credential store in the pod rather than on the PVC, and rendered with
+`persistence.enabled=false`. With the `Recreate` strategy the old pod is gone before the new one
+starts, so do these before you sync:
+
+* **GitOps releases.** Their saved Git tokens and SSH keys are in the running pod's
+  `keys/credentials.jceks`, and go with it. The first start with this chart puts the image's files in
+  `keys/` on the PVC, without a credential store. To keep the saved credentials, copy the store out
+  before the sync (when the file is there), and back once the new pod is Ready, before anyone deploys
+  from KDPS:
+  ```
+  oc -n kdps exec deploy/ambari -c ambari -- cat /var/lib/ambari-server/keys/credentials.jceks > credentials.jceks
+  # sync the new chart version and wait for the pod to be Ready
+  oc -n kdps exec -i deploy/ambari -c ambari -- sh -c 'cat > /var/lib/ambari-server/keys/credentials.jceks' < credentials.jceks
+  ```
+  The copy is encrypted with the master key; delete it once it is back. Without it, give each GitOps
+  release its Git access token or SSH key once more, in the form of its next upgrade from KDPS: it is
+  kept from then on. A release deployed directly with Helm needs nothing.
+* **`persistence.enabled=false`.** Earlier versions of the chart's README said an install that signs
+  in to OpenShift with an API URL and an account could do without the PVC. This chart does not
+  render that unless `persistence.acknowledgeEphemeral=true`, which is for throwaway installs. Turn
+  persistence on instead. The new PVC starts empty, so copy the view's working directory, and the
+  internal CA in it, out of the running pod before the sync, and back once the new pod is Ready,
+  before anyone deploys from KDPS (the credential store too, as above):
+  ```
+  oc -n kdps exec deploy/ambari -c ambari -- tar -C /var/lib/ambari-server -cf - resources/views/k8s-view-data > k8s-view-data.tar
+  # sync with persistence.enabled=true and wait for the pod to be Ready
+  oc -n kdps exec -i deploy/ambari -c ambari -- tar -C /var/lib/ambari-server --no-overwrite-dir -xf - < k8s-view-data.tar
+  oc -n kdps rollout restart deploy/ambari
+  ```
+  The archive holds the CA's private key: keep it no longer than this takes. If the CA is already
+  lost, see §7.
 
 ---
 
@@ -615,6 +660,27 @@ The view is installed but not configured. KDPS → Configuration.
 The master key is not reaching the server. Anything the view encrypts from here on uses the
 fallback passphrase, so fix it before uploading a kubeconfig.
 
+**`persistence.enabled=false keeps the KDPS internal CA and the saved Git credentials in the pod`.**
+The chart refuses to render without the PVC (§3). Set `persistence.enabled=true`, after copying
+what the running pod holds (§4, from chart 0.1.11 or earlier).
+
+**The pod stays in `Init` and the `seed-keys` container fails.**
+It copies the image's files into `keys/` on the PVC and needs to write there. On vanilla Kubernetes
+the claim must be writable by the pod's group: set `podSecurityContext.fsGroup`. OpenShift does that
+on its own.
+
+**Services deployed by KDPS reject each other's certificates after Ambari restarted.**
+Superset cannot connect to Trino, for example, with `PKIX path building failed` or `certificate
+verify failed`, and the pod logs say `Generating a new Ambari internal CA` at a deploy. The internal
+CA was lost with the PVC, or with the pod when persistence was off: see "If the internal CA was
+lost" in §7.
+
+**`GitOps over HTTPS requires authToken or sshKey` when upgrading a GitOps release**, or the
+uninstall says `The Git credential KDPS saved for it is no longer in Ambari's credential store`.
+The credential store was lost: with chart 0.1.11 or earlier at every new pod, otherwise with the
+PVC. Give the release's Git access token or SSH key in the upgrade form; it is kept from then on,
+and the uninstall works again.
+
 ### Reading the logs
 
 ```
@@ -622,6 +688,7 @@ oc -n kdps logs deploy/ambari -c ambari                  # entrypoint + server +
 oc -n kdps logs deploy/ambari -c ambari | grep '^\[ambari-audit\]'   # the audit trail only
 oc -n kdps logs deploy/ambari -c ambari --previous       # the container before the last restart
 oc -n kdps logs deploy/ambari -c https-keystore          # the certificate conversion
+oc -n kdps logs deploy/ambari -c seed-keys               # what keys/ on the PVC holds
 oc -n kdps exec deploy/ambari -- tail -100 /var/log/ambari-server/ambari-server.log
 oc -n kdps exec deploy/ambari -- ambari-server status
 ```
@@ -633,11 +700,17 @@ the cluster's log store (§5).
 
 ## 7. Backup and restore
 
-What you need to be able to restore:
+What you need to be able to restore, all three:
 
-1. **The database** — everything Ambari knows. `pg_dump` on your own schedule.
-2. **The master key** — without it the backup is unreadable.
-3. **The kubeconfig**, if you uploaded one. Or just upload it again; it is not the source of truth.
+1. **The database** — Ambari's state and the KDPS view's. `pg_dump` on your own schedule.
+2. **The master key** — without it the database backup is unreadable, and so is the credential store
+   on the PVC.
+3. **The PVC** — the KDPS internal CA, the credential store with the Git credentials of GitOps
+   releases, operation records and the uploaded kubeconfig (§3). Back it up when you back up the
+   database: a GitOps release given a new Git token after the PVC's backup needs it again after a
+   restore.
+
+### Taking the backups
 
 The database, for example:
 
@@ -650,16 +723,62 @@ backup restores only onto an image of the **same line**. The server does not sta
 line's schema, and the pod says so (§6). A backup of an earlier line can be brought forward once it is
 restored, with the schema upgrade (§4); one of a later line cannot be brought back to an earlier image.
 
-To restore: recreate the master key Secret with the *same* key, restore the database into an empty
-one, and install the chart pointing at it with `image.tag` of the backup's line:
+The PVC: a VolumeSnapshot of the claim (`ambari`, or `persistence.existingClaim`) where the storage
+supports snapshots, or the platform's backup tool. Otherwise copy its two directories out of the
+running pod:
+
+```
+oc -n kdps exec deploy/ambari -c ambari -- tar -C /var/lib/ambari-server -cf - keys resources/views/k8s-view-data > ambari-files-$(date +%F).tar
+```
+
+That backup holds the internal CA's private key as it is: whoever reads it can issue certificates
+that every service deployed with KDPS's auto-generated TLS trusts. Keep it as safe as the master
+key's backup.
+
+### Restoring
+
+Recreate the master key Secret with the *same* key and restore the database into an empty one:
 
 ```
 pg_restore -h pg01.corp.example.com -U ambari -d ambari --no-owner ambari-2.8.2-2026-10-12.dump
 ```
 
+Then install the chart pointing at the database, with `image.tag` of the backup's line, and put the
+PVC back **before the first deploy**: a deploy with TLS before then generates a new internal CA.
+
+* From a snapshot: create a claim from it, and install with `persistence.existingClaim` set to it.
+* From the archive: once the pod is Ready, and before anyone deploys from KDPS,
+  ```
+  oc -n kdps exec -i deploy/ambari -c ambari -- tar -C /var/lib/ambari-server --no-overwrite-dir -xf - < ambari-files-2026-10-12.tar
+  oc -n kdps rollout restart deploy/ambari
+  ```
+  `--no-overwrite-dir` leaves the two mounted directories themselves alone, which the pod's user is
+  not allowed to change.
+
 The server finds the schema present — the pod logs say `the database schema (2.8.2) is the one
 Ambari 2.8.2.0 runs on` — and starts against it. The administrator password is the one in the backup;
 the `adminPassword` Secret is only used on an empty database.
+
+### If the internal CA was lost
+
+The internal CA is only on the PVC. When it is lost — with the PVC, or with the pod when persistence
+was off — KDPS generates another one the next time it needs one, such as at the next deploy with
+auto-generated TLS, and the pod logs say `Generating a new Ambari internal CA`. The releases deployed
+from then on get certificates and truststores of the new CA, those deployed before keep the old
+ones, and the two no longer trust each other: Superset cannot connect to Trino, for example.
+
+1. If a backup of the PVC has the old CA, put it back (above). Then only the releases deployed with
+   TLS since it was lost need step 2.
+2. Otherwise keep the new CA, and in KDPS upgrade every release that uses auto-generated TLS, without
+   changing its values. Each upgrade issues the release's certificates from the current CA and gives
+   it a truststore holding that CA. Until the last one is upgraded, the services already upgraded
+   and those not yet upgraded cannot talk to each other over TLS. A service that still presents its
+   old certificate after its upgrade needs its pods restarted.
+3. Give the current CA to whatever outside KDPS trusted the old one, such as clients that imported
+   it:
+   ```
+   oc -n kdps exec deploy/ambari -c ambari -- sh -c 'cat /var/lib/ambari-server/resources/views/k8s-view-data/*/ca/ambari-ca.crt'
+   ```
 
 ---
 
@@ -673,6 +792,10 @@ the `adminPassword` Secret is only used on an empty database.
 * With `api.tls.enabled` there is no plain HTTP listener at all: the client connector is one or the
   other, never both.
 * The keystore password is generated per pod and never leaves the pod's own `emptyDir`.
+* The PVC holds the KDPS internal CA's private key as it is, readable only by the pod's user and
+  group, and the credential store, encrypted with the master key. Whoever can read the claim, its
+  snapshots or its backups can issue certificates the deployed services trust: give them the access
+  rules of the master key's backup.
 * Ambari's default `admin` / `admin` never reaches the Route: the server replaces it with the
   `adminPassword` Secret before the pod is Ready, and the chart does not render without one unless
   `adminPassword.allowDefault` says otherwise. For the few seconds between the server starting and

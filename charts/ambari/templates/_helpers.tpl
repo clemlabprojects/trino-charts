@@ -204,6 +204,20 @@ true
 {{- end -}}
 
 {{/*
+Whether the data claim is mounted. It holds the KDPS internal CA and Ambari's credential store, so
+without it every new pod signs certificates with a CA of its own and forgets the saved Git
+credentials. Running without one is therefore refused unless persistence.acknowledgeEphemeral says
+that is what is wanted.
+*/}}
+{{- define "ambari.persistence.onClaim" -}}
+{{- if .Values.persistence.enabled -}}
+true
+{{- else if not .Values.persistence.acknowledgeEphemeral -}}
+{{- fail "persistence.enabled=false keeps the KDPS internal CA and the saved Git credentials in the pod: every new pod would sign certificates with a new CA, so the services deployed before and after it would no longer trust each other, and forget the Git credentials of GitOps releases. Keep persistence.enabled=true, or set persistence.acknowledgeEphemeral=true for a throwaway install" -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
 The server is given stopTimeoutSeconds to stop before the entrypoint kills it, and Kubernetes kills
 the whole pod terminationGracePeriodSeconds after asking it to stop. A grace period no longer than
 the stop timeout would cut every slow shutdown short, which is what the stop timeout is there to

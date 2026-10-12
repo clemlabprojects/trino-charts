@@ -5,8 +5,9 @@ Apache Ambari running standalone — no managed Hadoop cluster — so that it ca
 server runs inside the cluster it manages and is meant to be deployed by Argo CD.
 
 The chart deploys one Ambari server and nothing else. In particular it does **not** run a database:
-Ambari keeps all of its state, including the KDPS view's configuration, in PostgreSQL, and a
-production install points at a database you already run.
+Ambari keeps its state, including the KDPS view's configuration, in PostgreSQL, and a production
+install points at a database you already run. What the view keeps on disk is on a claim
+([Persistence](#persistence)).
 
 ```
 helm install ambari oci://registry.clemlab.com/clemlabprojects/charts/ambari \
@@ -33,7 +34,8 @@ of its own, and the master key it needs must never change once anything has been
 * A PostgreSQL database and a role that can create tables in it. The schema is loaded on first
   start when the database holds none, in one transaction; when that fails, psql's error is in the
   pod logs and nothing of the schema is kept.
-* A `ReadWriteOnce` StorageClass. See [Persistence](#persistence) for what is kept and why.
+* A `ReadWriteOnce` StorageClass. The claim holds the KDPS internal CA and the saved Git
+  credentials; see [Persistence](#persistence) for what is kept and why.
 
 The image runs as an arbitrary non-root UID, so no SCC beyond `restricted-v2` is needed.
 
@@ -243,16 +245,30 @@ simply run the install a second time.
 
 ## Persistence
 
-Ambari's state lives in the database. One thing on disk has to survive a restart: the KDPS view's
-working directory, `resources/views/k8s-view-data/`, which holds the uploaded kubeconfig.
+Ambari's state lives in the database, but the KDPS view keeps some of its own on disk, and that has
+to survive a new pod — an upgrade, a node drain, an eviction. The claim is mounted on two sub-paths
+of `/var/lib/ambari-server`:
 
-The claim is mounted on exactly that sub-path. Everything else under `/var/lib/ambari-server`
-belongs to the image, so an image upgrade brings new stacks and view jars with it. The claim carries
-`helm.sh/resource-policy: keep`, so `helm uninstall` does not take the kubeconfig with it.
+| Sub-path | Holds |
+| --- | --- |
+| `resources/views/k8s-view-data/` | the view's working directory: the **KDPS Internal CA** that signs the certificates of the services KDPS deploys (`<instance>/ca`), operation parameters and logs, Helm repository and registry settings, Flux workspaces, and the uploaded kubeconfig |
+| `keys/` | Ambari's **credential store**, shared by the server and the view: the Git tokens and SSH keys of GitOps releases. It is encrypted with the master key, which is not on the claim |
 
-If the view authenticates to OpenShift with an API URL and an account rather than a kubeconfig, that
-is held in the Ambari database and there is nothing on disk to keep — you can run with
-`persistence.enabled=false`.
+An init container copies into `keys/` the files of the image's that the claim does not have yet, and
+never replaces one. Everything else under `/var/lib/ambari-server` belongs to the image, so an image
+upgrade brings new stacks and view jars with it. The claim carries `helm.sh/resource-policy: keep`,
+so `helm uninstall` leaves it behind.
+
+Keep it, whichever way the view signs in to the cluster. Without it, every new pod signs
+certificates with a new internal CA, so the services deployed before it and those deployed after it
+no longer trust each other — Superset can no longer reach Trino over TLS, for one — and it forgets
+the Git credentials, so GitOps releases cannot be upgraded or uninstalled until they are entered
+again. The chart therefore refuses `persistence.enabled=false` unless
+`persistence.acknowledgeEphemeral=true` says that is intended, and the release notes then carry a
+warning: for a throwaway install only.
+
+Back the claim up with the database and the master key, and restore it before the first deploy:
+[OPERATIONS.md](OPERATIONS.md) §7.
 
 ## Logs and the audit trail
 

@@ -5,6 +5,16 @@ Ambari {{ .Chart.AppVersion }} (standalone, hosting the KDPS view) is installing
   Master key from Secret {{ include "ambari.masterKey.secretName" . }} (key {{ include "ambari.masterKey.secretKey" . }})
              Back it up. Everything encrypted with it -- the credential store, and the kubeconfig
              the KDPS view stores -- becomes unreadable if it is lost or changed.
+{{- if include "ambari.persistence.onClaim" . }}
+  Data     : claim {{ .Values.persistence.existingClaim | default (include "ambari.fullname" .) }}: the KDPS internal CA, the credential store with the Git
+             credentials of GitOps releases, operation records and the uploaded kubeconfig. Back it
+             up with the database and the master key, and restore it before the first deploy.
+{{- else }}
+  Data     : WARNING -- no claim (persistence.acknowledgeEphemeral=true). Every new pod signs
+             certificates with a new KDPS internal CA, so the services deployed before and after it
+             no longer trust each other, and forgets the Git credentials of GitOps releases.
+             Throwaway installs only.
+{{- end }}
 {{- $adminSecret := include "ambari.adminPassword.secretName" . }}
 {{- if $adminSecret }}
   Admin    : password from Secret {{ $adminSecret }} (key {{ include "ambari.adminPassword.secretKey" . }}). It replaces

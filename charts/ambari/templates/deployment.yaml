@@ -43,7 +43,7 @@ spec:
       {{- with .Values.affinity }}
       affinity: {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- if or .Values.passwdShim.enabled .Values.api.tls.enabled }}
+      {{- if or .Values.passwdShim.enabled .Values.api.tls.enabled (include "ambari.persistence.onClaim" .) }}
       initContainers:
         {{- if .Values.passwdShim.enabled }}
         # OpenShift runs the pod under a random UID with no /etc/passwd entry, and Ambari's Python
@@ -110,6 +110,28 @@ spec:
             {{- end }}
             - name: https-keystore
               mountPath: /https
+        {{- end }}
+        {{- if include "ambari.persistence.onClaim" . }}
+        # The claim's keys/ is mounted over the image's /var/lib/ambari-server/keys, which ships the
+        # files Ambari's certificate tooling needs (ca.config, db/). Copy in those the claim does not
+        # have yet, and never replace one: the credential store and the files the server already uses
+        # stay as they are. Not cp -a: the directory the claim gives is the kubelet's, and setting its
+        # times or mode fails for this UID.
+        - name: seed-keys
+          image: {{ include "ambari.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+              cp -Rn /var/lib/ambari-server/keys/. /data/keys/
+              echo "keys/ on the claim holds:" $(ls -A /data/keys)
+          securityContext: {{- toYaml .Values.securityContext | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /data/keys
+              subPath: keys
         {{- end }}
       {{- end }}
       containers:
@@ -187,14 +209,21 @@ spec:
               mountPath: /etc/passwd
               subPath: passwd
             {{- end }}
-            {{- if .Values.persistence.enabled }}
-            # Only the view's own working directory is persisted -- the uploaded kubeconfig and its
-            # cache. Mounting the whole of /var/lib/ambari-server would hide the image's content
-            # there, including ambari-env.sh, which is what puts ambari_commons on PYTHONPATH, and
-            # would freeze the stacks and view jars at whatever the first image shipped.
+            {{- if include "ambari.persistence.onClaim" . }}
+            # Two directories are kept on the claim (see persistence in values.yaml): the view's working
+            # directory, which holds the KDPS internal CA, and keys/, Ambari's credential store, where
+            # the view keeps the Git credentials of GitOps releases. keys/ is mounted where the server
+            # and the view both read it: moving only the view's store, with
+            # security.server.credential_store_path, which the server ignores, would split their
+            # secrets over two files. Mounting the whole of /var/lib/ambari-server would hide the
+            # image's content there, including ambari-env.sh, which is what puts ambari_commons on
+            # PYTHONPATH, and would freeze the stacks and view jars at whatever the first image shipped.
             - name: data
               mountPath: /var/lib/ambari-server/resources/views/k8s-view-data
               subPath: k8s-view-data
+            - name: data
+              mountPath: /var/lib/ambari-server/keys
+              subPath: keys
             {{- end }}
             {{- if or .Values.views.existingClaim .Values.views.configMap }}
             - name: views
@@ -227,7 +256,7 @@ spec:
         - name: passwd-shim
           emptyDir: {}
         {{- end }}
-        {{- if .Values.persistence.enabled }}
+        {{- if include "ambari.persistence.onClaim" . }}
         - name: data
           persistentVolumeClaim:
             claimName: {{ .Values.persistence.existingClaim | default (include "ambari.fullname" .) }}
