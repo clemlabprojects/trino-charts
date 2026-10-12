@@ -220,8 +220,8 @@ project's usage against its ResourceQuota. What changes:
   out the service accounts another KDPS release of the project still uses (OpenMetadata and
   JupyterHub both use the project's `default` service account). Likewise, a binding of the
   uninstalled release that another release still depends on is handed over to that release, or
-  kept, with the commands to run before deleting it. A GitOps deploy never grants an SCC: it
-  checks, and stops before committing when one is missing, so use the first way. The shared
+  kept, with the commands to run before deleting it. A GitOps deploy started from KDPS checks and
+  grants the same way before anything is committed to Git. The shared
   `kdps-scc-<scc>` RoleBinding of earlier versions is left in place; the uninstall suggests deleting
   it once no remaining release depends on it.
 * **Certificates.** cert-manager ClusterIssuers are not visible to such an account. Use the Ambari
