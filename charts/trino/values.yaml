@@ -845,6 +845,23 @@ initContainers: {}
 #      command: ['sh', '-c', 'echo The worker is running! && sleep 3600']
 # ```
 
+initContainerResources: {}
+# initContainerResources -- Resources of the init containers the chart adds itself (HTTPS keystore,
+# Ranger directories, dynamic catalog store, Hadoop group mapping overlay). Kubernetes counts init
+# containers when it sets the pod QoS class: give them requests equal to limits, as for the coordinator
+# and workers, to keep the pods in the Guaranteed class. Does not apply to `initContainers`, which carry
+# their own resources.
+# @raw
+# Example:
+# ```yaml
+#  requests:
+#    cpu: 100m
+#    memory: 128Mi
+#  limits:
+#    cpu: 100m
+#    memory: 128Mi
+# ```
+
 sidecarContainers: {}
 # sidecarContainers -- Additional [containers that starts
 # before](https://kubernetes.io/docs/concepts/workloads/pods/sidecar-containers/)
@@ -970,7 +987,21 @@ coordinator:
     # coordinator.deployment.strategy -- The deployment strategy to use to replace existing pods with new ones.
 
   jvm:
-    maxHeapSize: "8G"
+    maxHeapSize: ""
+    # coordinator.jvm.maxHeapSize -- Fixed Java heap size, rendered as `-Xmx` (for example `6G`; Java reads `G` as GiB).
+    # Leave empty to size the heap from the container memory limit with `maxRAMPercentage` instead, so the heap
+    # follows the limit when it changes. An explicit heap must stay well below `coordinator.resources.limits.memory`,
+    # around 70-80% of it: the JVM also needs memory outside the heap, and the container is killed when it goes
+    # over the limit. With no memory limit in `coordinator.resources`, an empty value gives a fixed 8G heap, as
+    # earlier chart versions did: a share of the node memory in every Trino pod on the node could add up to more
+    # than the node has.
+    maxRAMPercentage: 75
+    # coordinator.jvm.maxRAMPercentage -- Heap as a percentage of the container memory limit, used when `maxHeapSize`
+    # is empty and a memory limit is set.
+    initialRAMPercentage: ""
+    # coordinator.jvm.initialRAMPercentage -- Initial heap as a percentage of the container memory limit, used when
+    # `maxHeapSize` is empty and a memory limit is set. Empty means the same as `maxRAMPercentage`; it must not be
+    # higher.
     gcMethod:
       type: "UseG1GC"
       g1:
@@ -1157,7 +1188,21 @@ worker:
     # worker.deployment.strategy -- The deployment strategy to use to replace existing pods with new ones.
 
   jvm:
-    maxHeapSize: "8G"
+    maxHeapSize: ""
+    # worker.jvm.maxHeapSize -- Fixed Java heap size, rendered as `-Xmx` (for example `6G`; Java reads `G` as GiB).
+    # Leave empty to size the heap from the container memory limit with `maxRAMPercentage` instead, so the heap
+    # follows the limit when it changes. An explicit heap must stay well below `worker.resources.limits.memory`,
+    # around 70-80% of it: the JVM also needs memory outside the heap, and the container is killed when it goes
+    # over the limit. With no memory limit in `worker.resources`, an empty value gives a fixed 8G heap, as
+    # earlier chart versions did: a share of the node memory in every Trino pod on the node could add up to more
+    # than the node has.
+    maxRAMPercentage: 75
+    # worker.jvm.maxRAMPercentage -- Heap as a percentage of the container memory limit, used when `maxHeapSize`
+    # is empty and a memory limit is set.
+    initialRAMPercentage: ""
+    # worker.jvm.initialRAMPercentage -- Initial heap as a percentage of the container memory limit, used when
+    # `maxHeapSize` is empty and a memory limit is set. Empty means the same as `maxRAMPercentage`; it must not be
+    # higher.
     gcMethod:
       type: "UseG1GC"
       g1:

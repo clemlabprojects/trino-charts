@@ -41,7 +41,7 @@ data:
   jvm.config: |
     -server
     -agentpath:/usr/lib/trino/bin/libjvmkill.so
-    -Xmx{{ .Values.coordinator.jvm.maxHeapSize }}
+    {{- include "trino.jvm.heapOptions" (dict "jvm" .Values.coordinator.jvm "resources" .Values.coordinator.resources) | nindent 4 }}
     -XX:+{{ .Values.coordinator.jvm.gcMethod.type }}
     -XX:G1HeapRegionSize={{ .Values.coordinator.jvm.gcMethod.g1.heapRegionSize }}
     -XX:+ExplicitGCInvokesConcurrent

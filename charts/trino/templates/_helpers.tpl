@@ -251,6 +251,44 @@ Return busybox image honoring global registry defaults.
 {{- end -}}
 
 {{/*
+Java heap options for jvm.config. Takes a dict: "jvm" (a coordinator.jvm or worker.jvm block) and
+"resources" (the same role's resources).
+An explicit maxHeapSize is rendered as a fixed -Xmx. Left empty, the heap is a share of the container
+memory limit instead, so it follows the limit when the limit changes and leaves the rest for what the JVM
+uses outside the heap (code cache, metaspace, thread stacks, direct buffers). A heap as large as the limit
+gets the container killed for running out of memory under load, before Java can raise an OutOfMemoryError.
+The initial heap defaults to the maximum, as in Trino's own jvm.config.
+Without a memory limit, Java would take that share of the node memory instead, in every Trino pod on the
+node: the heap then stays at the fixed 8G earlier chart versions used.
+*/}}
+{{- define "trino.jvm.heapOptions" -}}
+{{- $jvm := .jvm -}}
+{{- $limits := get (.resources | default dict) "limits" | default dict -}}
+{{- if $jvm.maxHeapSize -}}
+-Xmx{{ $jvm.maxHeapSize }}
+{{- else if get $limits "memory" -}}
+{{- $max := default 75 $jvm.maxRAMPercentage -}}
+-XX:MaxRAMPercentage={{ $max }}
+-XX:InitialRAMPercentage={{ default $max $jvm.initialRAMPercentage }}
+{{- else -}}
+-Xmx8G
+{{- end -}}
+{{- end -}}
+
+{{/*
+Resources of the chart's own init containers (keystore, Ranger directories, catalog store, Hadoop
+configuration overlay). Kubernetes counts init containers when it sets the pod QoS class, so these need
+requests equal to limits too for the pod to be Guaranteed.
+Takes a dict: "root" (the chart context) and "indent" (the column of the container's keys).
+*/}}
+{{- define "trino.initContainer.resources" -}}
+{{- $indent := int .indent -}}
+{{- with .root.Values.initContainerResources }}
+{{- printf "resources:\n%s" (toYaml . | indent 2) | nindent $indent }}
+{{- end }}
+{{- end -}}
+
+{{/*
 Create the secret name for the file-based authentication's password file
 */}}
 {{- define "trino.passwordSecretName" -}}
@@ -473,12 +511,16 @@ the emptyDir is fresh on every pod start.
       mountPath: /original
     - name: hadoop-conf-merged
       mountPath: /merged
+  {{- if .Values.initContainerResources }}
+  {{- include "trino.initContainer.resources" (dict "root" . "indent" 2) }}
+  {{- else }}
   resources:
     requests:
       cpu: 10m
       memory: 32Mi
     limits:
       memory: 64Mi
+  {{- end }}
 {{- end }}
 {{- end -}}
 

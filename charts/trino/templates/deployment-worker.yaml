@@ -183,6 +183,7 @@ spec:
         - name: init-https-keystore
           image: {{ include "trino.busybox.image" (dict "root" .) }}
           imagePullPolicy: {{ default "IfNotPresent" .Values.busyboxImage.pullPolicy }}
+          {{- include "trino.initContainer.resources" (dict "root" . "indent" 10) }}
           command:
             - sh
             - -c

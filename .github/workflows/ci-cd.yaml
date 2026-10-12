@@ -88,6 +88,8 @@ jobs:
         uses: azure/setup-helm@v4
         with:
           version: v3.19.0
+      - name: Run template checks
+        run: ./tests/trino/test-jvm-heap.sh
       - name: Set up chart-testing
         uses: helm/chart-testing-action@v2.7.0
       - name: Create kind cluster

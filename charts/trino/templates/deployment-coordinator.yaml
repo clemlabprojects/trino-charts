@@ -252,6 +252,7 @@ spec:
         - name: init-catalog-store
           image: {{ include "trino.busybox.image" (dict "root" .) }}
           imagePullPolicy: {{ default "IfNotPresent" .Values.busyboxImage.pullPolicy }}
+          {{- include "trino.initContainer.resources" (dict "root" . "indent" 10) }}
           command: ["sh","-c","mkdir -p {{ .Values.dynamicCatalogs.storeDir }} && cp /etc/trino/catalog/*.properties {{ .Values.dynamicCatalogs.storeDir }}/ 2>/dev/null; echo seeded: $(ls {{ .Values.dynamicCatalogs.storeDir }})"]
           volumeMounts:
             {{- if or .Values.catalogs .Values.additionalCatalogs .Values.coordinator.additionalCatalogs }}
@@ -266,6 +267,7 @@ spec:
         - name: init-ranger-dirs
           image: {{ include "trino.busybox.image" (dict "root" .) }}
           imagePullPolicy: {{ default "IfNotPresent" .Values.busyboxImage.pullPolicy }}
+          {{- include "trino.initContainer.resources" (dict "root" . "indent" 10) }}
           command: ["sh","-c","mkdir -p /etc/trino/ranger/ssl"]
           volumeMounts:
             - name: ranger-dir
@@ -276,6 +278,7 @@ spec:
         - name: init-https-keystore
           image: {{ include "trino.busybox.image" (dict "root" .) }}
           imagePullPolicy: {{ default "IfNotPresent" .Values.busyboxImage.pullPolicy }}
+          {{- include "trino.initContainer.resources" (dict "root" . "indent" 10) }}
           command:
             - sh
             - -c
