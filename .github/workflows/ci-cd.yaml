@@ -195,7 +195,11 @@ jobs:
       - name: Install PyYAML
         run: pip install pyyaml
       - name: Run template checks
-        run: ./tests/ambari/test-shutdown-and-logs.sh
+        run: |
+          ./tests/ambari/test-shutdown-and-logs.sh
+          ./tests/ambari/test-admin-password.sh
+      - name: Check the release gate
+        run: ./tests/ambari/test-release-gate.sh
 
   test-superset:
     runs-on: ubuntu-latest
@@ -262,6 +266,16 @@ jobs:
         run: |
           git config user.name "$GITHUB_ACTOR"
           git config user.email "$GITHUB_ACTOR@users.noreply.github.com"
+      # chart-releaser releases every chart changed since the last release. The ambari chart waits
+      # until appVersion names an image whose entrypoint does what the chart relies on -- with an
+      # earlier one its pod never becomes Ready (see the script) -- as it does for the Clemlab OCI
+      # repository. chart-releaser skips a chart whose directory is gone, so only this one is held back.
+      - name: Hold back the ambari chart until it names an image it can run on
+        run: |
+          if ! out=$(.github/scripts/ambari-image-supported.sh charts/ambari); then
+            echo "::warning::The ambari chart is not released: ${out}"
+            rm -rf charts/ambari
+          fi
       - name: Release charts
         uses: helm/chart-releaser-action@v1.7.0
         env:

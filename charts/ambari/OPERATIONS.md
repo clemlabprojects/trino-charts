@@ -11,7 +11,7 @@ For what the chart *is* and every value it takes, see [README.md](README.md).
 ## 1. What you create before the first install
 
 The chart creates no secrets of its own. That is deliberate: a value the chart generated would be
-re-generated on the next Argo CD sync, and two of these three cannot change without losing data.
+re-generated on the next Argo CD sync, and some of these cannot change without losing data.
 
 Everything below has to exist **before** the Application syncs.
 
@@ -85,7 +85,63 @@ database:
 
 The schema is loaded automatically on first start, but only when the database is completely empty.
 
-### 1.3 The certificates
+### 1.3 The first administrator password — required
+
+On an empty database Ambari creates its `admin` account with the password `admin`. That password is
+in Ambari's public documentation, nothing forces a change at the first sign-in, and by default failed
+sign-ins lock nothing. So the chart requires the first password up front: on its first start the
+server replaces `admin` / `admin` with it, through its own API on the loopback, and only then reports
+Ready. The Service and the Route send nobody to it before that. Without a password the chart does not
+render.
+
+```
+oc -n kdps create secret generic ambari-admin --from-literal=password='<the password>'
+```
+
+```yaml
+adminPassword:
+  existingSecret: ambari-admin
+  existingSecretKey: password
+```
+
+or from Vault:
+
+```
+vault kv put secret/kdps/ambari/admin password='<the password>'
+```
+
+```yaml
+vault:
+  csi:
+    adminPassword:
+      enabled: true
+      path: secret/data/kdps/ambari/admin
+```
+
+Use `--from-literal` rather than `--from-file`: a file usually ends with a newline, and that newline
+would become part of the password.
+
+It sets the **first** password only. On every start the server checks whether the account still has
+the password the schema was created with — by reading the stored digest, not by trying `admin` /
+`admin` at the login, so nothing counts towards a lockout — and leaves any other password alone.
+Change the password in Ambari whenever your policy says so; the Secret is not read again, and editing
+it changes nothing. A database restored from a backup keeps the password it had.
+
+An `admin` account that still has the default password but is disabled, or locked out after
+`authentication.local.max.failures` failed sign-ins, is left alone, with a warning in the pod logs,
+and the pod becomes Ready: the server turns `admin` / `admin` away from such an account, and the
+password can only be changed by signing in. Give it another password from another administrator
+account before you enable or unlock it.
+
+When the password cannot be set — the server's password policy (`security.password.policy.regexp`)
+refuses it, or the API does not answer within five minutes — the container exits with the reason in
+its log rather than serve `admin` / `admin`, and Kubernetes restarts it (§6).
+
+`adminPassword.allowDefault=true` is for a throwaway development install only: the chart renders
+without a password and the server keeps `admin` / `admin`, with a warning in the pod logs and the
+release notes.
+
+### 1.4 The certificates
 
 Two different certificates, and you may want both:
 
@@ -120,7 +176,7 @@ router verifies Ambari's certificate, so a private CA has to go in
 The chart refuses to render if the Route and the server disagree — an `edge` route in front of an
 HTTPS-only server gives a 503 with no explanation, so it is rejected at template time instead.
 
-### 1.4 If you use Vault
+### 1.5 If you use Vault
 
 Two cluster-side prerequisites, both easy to forget:
 
@@ -165,9 +221,34 @@ Secret only exists while a pod is mounting it. Install with `route.tls.mode=edge
 afterwards, or just run the install twice. This does not apply to `passthrough`, which needs no
 Secret on the Route at all.
 
-First start takes a few minutes: the schema is created and the views are extracted.
+First start takes a few minutes: the schema is created, the views are extracted and the first
+administrator password replaces the default. The pod is Ready once that is done.
 
-Sign in with `admin` / `admin` and **change it immediately** — it is the default and it is public.
+Sign in as `admin` with the password from §1.3.
+
+This needs chart 0.1.11 or later with an `ambari-kdps` image later than 2.8.2.0-160. A released
+chart names such an image as its default: it is not released until it does. Installed from a git
+checkout of the chart instead, check `appVersion` in `Chart.yaml`, and set `image.tag` if it is
+2.8.2.0-160 or earlier. With other combinations:
+
+* **An earlier image** sets no password, so with this chart the pod never becomes Ready.
+* **An earlier chart and an earlier image**: the server comes up with `admin` / `admin` and the Route
+  serves it as soon as the pod is Ready. Until you can upgrade, keep it off the Route for the first
+  start:
+  1. Install with `route.enabled=false`.
+  2. `oc -n kdps port-forward svc/ambari 8080:8080`, sign in at `http://localhost:8080` with
+     `admin` / `admin`, and change the password: Manage Ambari → Users → admin.
+  3. Set `route.enabled=true` and sync again.
+* **An earlier chart and a later image**: on a new database, or one whose `admin` account still
+  accepts `admin` / `admin`, the server refuses to start without the password. Give it through
+  `extraEnv`:
+  ```yaml
+  extraEnv:
+    - name: AMBARI_ADMIN_PASSWORD
+      valueFrom:
+        secretKeyRef: { name: ambari-admin, key: password }
+  ```
+  An installation whose administrator password was changed already starts without it (§4).
 
 ### Pointing the view at a cluster
 
@@ -242,7 +323,11 @@ project's usage against its ResourceQuota. What changes:
 
 Safe to change at any time: the image tag, the certificates, the route host, resources, the stop
 timeout and grace period, the logs settings, replicas (keep it at 1 — the chart uses the `Recreate`
-strategy and a `ReadWriteOnce` claim).
+strategy and a `ReadWriteOnce` claim). The first administrator password's Secret can change too, but
+to no effect: it is only used while the password is still the default (§1.3).
+
+A release installed with chart 0.1.10 or earlier is the exception for the image tag and the chart
+version: read §4 first, or the new pod may not start, and `Recreate` has already removed the old one.
 
 ---
 
@@ -254,6 +339,23 @@ persisted rather than the whole directory.
 
 Take a database backup first. Ambari migrates its own schema on start-up, and that is not reversible
 by rolling the image tag back.
+
+### From chart 0.1.10 or earlier
+
+Those charts pass no administrator password. With the `Recreate` strategy the old pod is gone before
+the new one starts, so prepare these before you sync:
+
+* **Moving to chart 0.1.11 or later**: the chart does not render without `adminPassword` (§1.3).
+  Create the Secret, or the Vault path, and set it in the values with the new chart version. When the
+  administrator password was changed already, the server leaves it alone and the Secret is not used
+  on this database; a new one built from these values, such as a disaster-recovery copy, gets it, so
+  put the current password in it.
+* **Changing only `image.tag`** to an image later than 2.8.2.0-160: a release whose administrator
+  password was changed starts as before, and the pod logs say `AMBARI_ADMIN_PASSWORD is not set, and
+  none is needed`. One whose `admin` account still accepts `admin` / `admin` does not start until the
+  password is given through `extraEnv` (§2); the server then replaces the default before the pod is
+  Ready. If you are not sure which applies, add the `extraEnv` entry anyway: once the password has
+  changed it is not used.
 
 ---
 
@@ -337,11 +439,53 @@ outgrow it.
 
 **No pod at all, and nothing in the events for it.**
 Look at the Deployment, not the pod. `ReplicaSetCreateError ... pod security enforce level that is
-lower than privileged` means the namespace label from §1.4 is missing.
+lower than privileged` means the namespace label from §1.5 is missing.
 
 **`AMBARI_SECURITY_MASTER_KEY is not set: the master key is required.`**
 The Secret named in `masterKey.existingSecret` does not exist, or the key inside it is not the one
 in `masterKey.existingSecretKey`.
+
+**`AMBARI_ADMIN_PASSWORD is not set: the first administrator password is required.`**
+The database is new, or its `admin` account still accepts `admin` / `admin`, and no password reached
+the container. The same as above, for `adminPassword.existingSecret` and
+`adminPassword.existingSecretKey` (§1.3); with chart 0.1.10 or earlier, which passes none, give it
+through `extraEnv` (§2). `AMBARI_ADMIN_PASSWORD is not set, and the database could not be read`
+means the check could not tell; psql's error above it says why.
+`AMBARI_ADMIN_PASSWORD is Ambari's public default password` means the Secret holds `admin`.
+
+**The pod runs but never becomes Ready.**
+The readiness check waits for the first administrator password to be set. The pod logs say where it
+stands: `waiting for the server's API to set the administrator password` while the server is still
+starting, then `set the administrator password from AMBARI_ADMIN_PASSWORD` or `the administrator
+password is not the default one; leaving it as it is`. If none of these appear at all, the image is
+2.8.2.0-160 or earlier and does not set the password: set `image.tag` to a later one (§4).
+
+**`WARNING: the admin account is disabled but still has Ambari's default password`** (or `is locked
+out after too many failed sign-ins`).
+The pod is Ready and `admin` / `admin` cannot sign in, but the account keeps the public password
+until someone changes it (§1.3). Give it another password from another administrator account before
+enabling or unlocking it.
+
+**`the server refused to set the administrator password (HTTP …)`, then the container exits.**
+The reason the server gave follows; most often the password does not match the server's password
+policy. Put a password that does in the Secret; the next start sets it. `the administrator password
+could not be set within 300s` means the server's API never answered, and the server log above it
+says why. `the server turned admin/admin away (HTTP 401)` means the server refused the default
+password although the database shows the account enabled, not locked out and with that password;
+the server log above it says why.
+
+**The administrator password is lost.**
+Put the default back in the database, enable and unlock the account, with the password you want in
+the Secret, and restart the pod: the server finds the default again and replaces it before the pod
+is Ready.
+
+```
+UPDATE user_authentication SET authentication_key =
+  '538916f8943ec225d97a9a86a2c6ec0818c1cd400e09e03b660fdaaec4af29ddbb6f2b1033b81b00'
+ WHERE authentication_type = 'LOCAL'
+   AND user_id = (SELECT user_id FROM users WHERE user_name = 'admin');
+UPDATE users SET active = 1, consecutive_failures = 0 WHERE user_name = 'admin';
+```
 
 **CrashLoopBackOff, and the pod logs end with the server's own log.**
 The entrypoint prints the last 200 lines of `ambari-server.log` when a start fails, precisely
@@ -383,7 +527,8 @@ What you need to be able to restore:
 3. **The kubeconfig**, if you uploaded one. Or just upload it again; it is not the source of truth.
 
 To restore: recreate the master key Secret with the *same* key, restore the database, install the
-chart pointing at it. The server finds the schema present and starts against it.
+chart pointing at it. The server finds the schema present and starts against it. The administrator
+password is the one in the backup; the `adminPassword` Secret is only used on an empty database.
 
 ---
 
@@ -397,4 +542,10 @@ chart pointing at it. The server finds the schema present and starts against it.
 * With `api.tls.enabled` there is no plain HTTP listener at all: the client connector is one or the
   other, never both.
 * The keystore password is generated per pod and never leaves the pod's own `emptyDir`.
-* `admin`/`admin` is the shipped default. Change it.
+* Ambari's default `admin` / `admin` never reaches the Route: the server replaces it with the
+  `adminPassword` Secret before the pod is Ready, and the chart does not render without one unless
+  `adminPassword.allowDefault` says otherwise. For the few seconds between the server starting and
+  the password changing, the server is reachable only on the pod's own address, from inside the
+  cluster; a NetworkPolicy that admits only the router closes that too.
+* The password reaches the server's API on the pod's loopback and is kept off the command lines and
+  out of the logs; the server process itself is not given it.

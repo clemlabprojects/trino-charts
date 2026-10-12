@@ -76,6 +76,22 @@ masterKey:
   existingSecretKey: master-key
   value: ""                         # inline. Development only: it lands in the release values.
 
+# --- the first administrator password ---------------------------------------------------------
+# On an empty database Ambari creates its "admin" account with the password "admin", which is in
+# Ambari's public documentation. The server replaces it with this password on its first start, before
+# the pod is Ready, so the Service and the Route never serve a console that accepts admin/admin. It is
+# REQUIRED: the chart refuses to render without it unless allowDefault is set.
+#
+# It sets the FIRST password only. Once the password is no longer the default -- set by this, or
+# changed in the UI -- later starts leave it alone, so changing the Secret afterwards changes nothing.
+# Needs an ambari-kdps image later than 2.8.2.0-160: with an earlier one the pod never becomes Ready.
+adminPassword:
+  existingSecret: ""                # a Secret you create, or one Vault syncs (see vault.csi.adminPassword)
+  existingSecretKey: password
+  value: ""                         # inline. Development only: it lands in the release values.
+  # Development only: start without a password and keep admin/admin until someone changes it.
+  allowDefault: false
+
 # --- agents -----------------------------------------------------------------------------------
 # Ambari as the KDPS operator manages Kubernetes, not a fleet of hosts, so it has no agents to
 # authenticate. Leaving this off is what removes the agent SSL listeners -- and with them the
@@ -158,10 +174,11 @@ ingress:
     secretName: ""                  # defaults to "<ingress host>-tls"
 
 # --- Vault ----------------------------------------------------------------------------------
-# The database password and the route certificate, read out of Vault through the Secrets Store CSI
-# driver. Turning either one on is what enables the CSI volume; global.vault.* says where Vault is.
-# Both are synced into ordinary Kubernetes Secrets (secretObjects) rather than only mounted, so the
-# Deployment and the Route consume them the same way whether they came from Vault or not.
+# The master key, the first administrator password, the database password and the certificates,
+# read out of Vault through the Secrets Store CSI driver. Turning any one on is what enables the CSI
+# volume; global.vault.* says where Vault is. All but the certificate Ambari serves are synced into
+# ordinary Kubernetes Secrets (secretObjects) rather than only mounted, so the Deployment and the
+# Route consume them the same way whether they came from Vault or not.
 #
 # Two things the cluster has to provide before this works:
 #
@@ -183,6 +200,11 @@ vault:
       path: ""                      # e.g. secret/data/kdps/ambari/master-key
       key: master-key               # key inside the Vault secret
       secretName: ""                # defaults to "<release>-master-key"
+    adminPassword:
+      enabled: false
+      path: ""                      # e.g. secret/data/kdps/ambari/admin
+      key: password                 # key inside the Vault secret
+      secretName: ""                # defaults to "<release>-admin-password"
     apiCert:
       enabled: false
       path: ""                      # e.g. secret/data/kdps/ambari/api-cert
@@ -283,6 +305,8 @@ livenessProbe:
   periodSeconds: 20
   timeoutSeconds: 5
   failureThreshold: 6
+# Ready once the login page answers AND the server no longer has the default administrator password
+# (see adminPassword), which the image records in /tmp/admin-bootstrapped.
 readinessProbe:
   initialDelaySeconds: 60
   periodSeconds: 10

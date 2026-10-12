@@ -136,6 +136,18 @@ spec:
                 secretKeyRef:
                   name: {{ include "ambari.masterKey.secretName" . }}
                   key: {{ include "ambari.masterKey.secretKey" . }}
+            {{- with include "ambari.adminPassword.secretName" . }}
+            # Replaces the default admin/admin on the first start, before the pod is Ready.
+            - name: AMBARI_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ . }}
+                  key: {{ include "ambari.adminPassword.secretKey" $ }}
+            {{- end }}
+            {{- if .Values.adminPassword.allowDefault }}
+            - name: AMBARI_ADMIN_ALLOW_DEFAULT
+              value: "true"
+            {{- end }}
             - name: AMBARI_STOP_TIMEOUT
               value: {{ include "ambari.stopTimeoutSeconds" . | quote }}
             - name: AMBARI_EXTRA_PROPERTIES
@@ -152,12 +164,16 @@ spec:
               port: {{ include "ambari.serverPortName" . }}
             {{- toYaml .Values.livenessProbe | nindent 12 }}
           readinessProbe:
-            # Ambari serves its login page unauthenticated; the API would answer 401 and never
-            # become ready.
-            httpGet:
-              path: /
-              port: {{ include "ambari.serverPortName" . }}
-              scheme: {{ if .Values.api.tls.enabled }}HTTPS{{ else }}HTTP{{ end }}
+            # Ready only once the entrypoint has replaced the default admin/admin (or was told to keep
+            # it), so the Service and the Route never send anyone to a console that accepts it; and
+            # while the server answers with its login page, which needs no sign-in -- the API would
+            # answer 401 and never become ready. -k because the certificate names the route host,
+            # not the loopback.
+            exec:
+              command:
+                - sh
+                - -c
+                - test -f /tmp/admin-bootstrapped && curl -fsS -o /dev/null {{ if .Values.api.tls.enabled }}-k https://127.0.0.1:{{ .Values.api.tls.port }}/{{ else }}http://127.0.0.1:8080/{{ end }}
             {{- toYaml .Values.readinessProbe | nindent 12 }}
           resources: {{- toYaml .Values.resources | nindent 12 }}
           volumeMounts:

@@ -5,6 +5,16 @@ Ambari {{ .Chart.AppVersion }} (standalone, hosting the KDPS view) is installing
   Master key from Secret {{ include "ambari.masterKey.secretName" . }} (key {{ include "ambari.masterKey.secretKey" . }})
              Back it up. Everything encrypted with it -- the credential store, and the kubeconfig
              the KDPS view stores -- becomes unreadable if it is lost or changed.
+{{- $adminSecret := include "ambari.adminPassword.secretName" . }}
+{{- if $adminSecret }}
+  Admin    : password from Secret {{ $adminSecret }} (key {{ include "ambari.adminPassword.secretKey" . }}). It replaces
+             admin/admin on the first start, before the pod is Ready; after that, editing the
+             Secret changes nothing -- change the password in Ambari.
+{{- else }}
+  Admin    : WARNING -- admin/admin (adminPassword.allowDefault=true). Anyone who reaches this
+             server can sign in as the Ambari Administrator until the password is changed.
+             Development only.
+{{- end }}
   Agents   : {{ if .Values.agent.enabled }}enabled{{ else }}none, so no agent listeners and no generated CA{{ end }}
   Audit log: in the pod logs, every line prefixed "[ambari-audit] ". Collect them with the cluster's
              log stack: the log files are {{ if not .Values.logs.persistence.enabled }}in the container and go with it{{ else if include "ambari.logs.onClaim" . }}on a claim, but are only a working copy{{ else }}on an emptyDir and go with the pod{{ end }}.
@@ -36,7 +46,7 @@ install with route.tls.mode=edge and switch afterwards.
 {{- end }}
 {{- end }}
 
-Then sign in (admin/admin by default — change it) and point the KDPS view at this cluster, once:
+Then sign in as admin{{ if $adminSecret }} with that password{{ end }} and point the KDPS view at this cluster, once:
   * OpenShift : KDPS -> Configuration -> log in with the API URL and an account that can deploy.
                 Stored in the Ambari database, so it survives pod restarts and upgrades.
   * Kubernetes: KDPS -> Configuration -> upload a kubeconfig. That one is a FILE under

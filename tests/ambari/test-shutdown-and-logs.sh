@@ -11,7 +11,8 @@ NAMESPACE=kdps
 FAILED=0
 
 COMMON=(--namespace "$NAMESPACE" --set database.host=postgres.example.svc --set database.password=changeme
-        --set masterKey.value=a-master-key --set route.host=ambari.apps.example.com)
+        --set masterKey.value=a-master-key --set adminPassword.existingSecret=ambari-admin
+        --set route.host=ambari.apps.example.com)
 
 render() {
     helm template ambari "$CHART" "${COMMON[@]}" "$@"

@@ -13,10 +13,14 @@ helm install ambari oci://registry.clemlab.com/clemlabprojects/charts/ambari \
   --namespace kdps --create-namespace \
   --set database.host=postgres.databases.svc.cluster.local \
   --set database.existingSecret=ambari-db \
+  --set masterKey.existingSecret=ambari-master-key \
+  --set adminPassword.existingSecret=ambari-admin \
   --set route.host=ambari.apps.example.com
 ```
 
-Sign in with `admin` / `admin` and change it.
+Sign in as `admin` with the password from the `ambari-admin` Secret. The server replaces Ambari's
+default `admin` / `admin` with it before the pod is Ready, so the Route never serves the default (see
+[The first administrator password](#the-first-administrator-password)).
 
 **Before your first install**, read [OPERATIONS.md](OPERATIONS.md) §1: the chart creates no secrets
 of its own, and the master key it needs must never change once anything has been encrypted with it.
@@ -69,6 +73,46 @@ It must exist before the release is installed and it must never change. The char
 not generate one — a generated value would be re-generated on every Argo CD sync. See
 [OPERATIONS.md](OPERATIONS.md) §1.1.
 
+## The first administrator password
+
+Required, and the chart will not render without it. On an empty database Ambari creates its `admin`
+account with the password `admin`, which is in Ambari's public documentation, and has no lockout on
+failed sign-ins by default. On its first start the server replaces that password with this one,
+through its own API on the loopback, and the pod becomes Ready only afterwards — so the Service and
+the Route never send anyone to a console that accepts `admin` / `admin`.
+
+| Source | Values |
+| --- | --- |
+| A Secret you already manage | `adminPassword.existingSecret`, `adminPassword.existingSecretKey` (default `password`) |
+| Vault | `global.vault.*` and `vault.csi.adminPassword.*` — see [Vault](#vault) |
+| Inline (development only) | `adminPassword.value` |
+
+```yaml
+adminPassword:
+  existingSecret: ambari-admin
+  existingSecretKey: password
+```
+
+It sets the **first** password only. Once the password is no longer the default — set from the
+Secret, or changed in the UI — later starts leave it alone, so changing the Secret afterwards changes
+nothing: change the password in Ambari. A restored database keeps the password it had. An `admin`
+account that is disabled or locked out is left alone too, with a warning in the pod logs: `admin` /
+`admin` cannot sign in to it, and neither can the server to change it. See
+[OPERATIONS.md](OPERATIONS.md) §1.3.
+
+`adminPassword.allowDefault=true` renders without a password and keeps `admin` / `admin` until
+someone changes it. It is meant for a throwaway development install, never for one the Route
+exposes.
+
+The image does this: with `ambari-kdps` 2.8.2.0-160 and earlier nothing replaces the password and the
+pod never becomes Ready, so keep `image.tag` at the chart's default or later. A released chart's
+default is always a later image; from a git checkout, check `appVersion` in `Chart.yaml`. Charts up
+to 0.1.10 do not set the password at all; with one of those, install with `route.enabled=false`,
+change the password through `oc port-forward`, then turn the Route on
+([OPERATIONS.md](OPERATIONS.md) §2). A release installed with one of those needs `adminPassword`
+before it moves to this chart, and may need the password before it moves to a newer image: see
+[OPERATIONS.md](OPERATIONS.md) §4 before you sync.
+
 ## Agents
 
 Ambari here manages Kubernetes, not a fleet of hosts, so `agent.enabled` is `false`. That removes
@@ -113,9 +157,10 @@ administrator has already arranged it.
 
 ## Vault
 
-The database password and the route certificate can both come from Vault through the Secrets Store
-CSI driver. They are synced into ordinary Kubernetes Secrets, so the Deployment and the Route
-consume them the same way whether Vault is involved or not.
+The master key, the first administrator password, the database password and the route certificate
+can all come from Vault through the Secrets Store CSI driver. They are synced into ordinary
+Kubernetes Secrets, so the Deployment and the Route consume them the same way whether Vault is
+involved or not.
 
 ```yaml
 global:
@@ -130,6 +175,9 @@ vault:
     masterKey:
       enabled: true
       path: secret/data/kdps/ambari/master-key
+    adminPassword:
+      enabled: true
+      path: secret/data/kdps/ambari/admin
     database:
       enabled: true
       path: secret/data/kdps/ambari/db
@@ -232,6 +280,10 @@ spec:
         database:
           host: postgres.databases.svc.cluster.local
           existingSecret: ambari-db
+        masterKey:
+          existingSecret: ambari-master-key
+        adminPassword:
+          existingSecret: ambari-admin
         route:
           host: ambari.apps.example.com
           tls:
@@ -246,7 +298,8 @@ spec:
 
 ## Pointing the view at a cluster
 
-Once the server is up, sign in and configure the KDPS view once:
+Once the server is up, sign in as `admin` with the first administrator password and configure the
+KDPS view once:
 
 * **OpenShift** — KDPS → Configuration → log in with the API URL and an account that can deploy.
   Stored in the Ambari database, so it survives pod restarts and upgrades.

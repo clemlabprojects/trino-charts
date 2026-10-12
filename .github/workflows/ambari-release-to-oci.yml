@@ -8,6 +8,7 @@ on:
       - "charts/ambari/**"
       - "tests/ambari/**"
       - ".github/workflows/ambari-release-to-oci.yml"
+      - ".github/scripts/ambari-image-supported.sh"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -44,23 +45,17 @@ jobs:
           echo "chart_version=${CHART_VERSION}" >> "$GITHUB_OUTPUT"
           echo "Chart: ${CHART_NAME}  Version: ${CHART_VERSION}"
 
-      # The clean stop (stopTimeoutSeconds) and the [ambari-audit] lines in the pod logs are done by
-      # the image's entrypoint, and ambari-kdps 2.8.2.0-160 and earlier do neither. A chart published
-      # on one of them would promise both in its notes and documentation while the pod does neither,
-      # so it waits here until appVersion names an image built with that entrypoint. This check is
-      # here rather than in tests/ambari so that it holds back this chart only, not the release of
-      # the others.
+      # The chart waits here until appVersion names an image whose entrypoint does what the chart
+      # relies on: with an earlier one its pod never becomes Ready (see the script). The CI/CD
+      # workflow asks the same before chart-releaser runs. This check is here rather than in
+      # tests/ambari so that it holds back this chart only, not the release of the others.
       - name: Refuse an image older than the chart needs
         run: |
-          set -euo pipefail
-          APP_VERSION=$(yq -r '.appVersion' "${CHART_DIR}/Chart.yaml")
-          LAST_UNSUPPORTED="2.8.2.0-160"
-          NEWER=$(printf '%s\n%s\n' "${LAST_UNSUPPORTED}" "${APP_VERSION}" | sort -V | tail -n 1)
-          if [ "${APP_VERSION}" = "${LAST_UNSUPPORTED}" ] || [ "${NEWER}" != "${APP_VERSION}" ]; then
-            echo "::error::appVersion ${APP_VERSION} is an ambari-kdps image that neither stops the server cleanly nor copies the audit log to the pod logs. Set appVersion to an image built after ${LAST_UNSUPPORTED} from the current entrypoint, then publish."
+          if ! out=$(.github/scripts/ambari-image-supported.sh "${CHART_DIR}"); then
+            echo "::error::${out}"
             exit 1
           fi
-          echo "appVersion ${APP_VERSION} is later than ${LAST_UNSUPPORTED}"
+          echo "${out}"
 
       - name: Login to Harbor OCI registry (via helm)
         run: |
@@ -81,7 +76,7 @@ jobs:
         run: |
           set -euo pipefail
           COMMON="--set database.host=postgres.example.svc --set database.existingSecret=client-pg \
-                  --set masterKey.existingSecret=ambari-master-key"
+                  --set masterKey.existingSecret=ambari-master-key --set adminPassword.existingSecret=ambari-admin"
           echo "--- OpenShift: external database, Route with our own certificate ---"
           helm template ambari "${CHART_DIR}" ${COMMON} \
             --set route.host=ambari.apps.example.com --set route.tls.mode=edgeWithCert >/dev/null
@@ -97,6 +92,8 @@ jobs:
             --set global.vault.auth.kubernetes.role=ambari \
             --set vault.csi.masterKey.enabled=true \
             --set vault.csi.masterKey.path=secret/data/kdps/ambari/master-key \
+            --set vault.csi.adminPassword.enabled=true \
+            --set vault.csi.adminPassword.path=secret/data/kdps/ambari/admin \
             --set vault.csi.database.enabled=true \
             --set vault.csi.database.path=secret/data/kdps/ambari/db \
             --set vault.csi.apiCert.enabled=true \
@@ -106,14 +103,20 @@ jobs:
           echo "--- vanilla Kubernetes: Ingress instead of a Route ---"
           helm template ambari "${CHART_DIR}" \
             --set database.host=postgres.example.svc --set database.password=changeme \
-            --set masterKey.value=a-master-key \
+            --set masterKey.value=a-master-key --set adminPassword.value=a-first-password \
             --set route.enabled=false \
             --set ingress.enabled=true --set ingress.host=ambari.example.com >/dev/null
           echo "--- and the combinations the chart must refuse ---"
           ! helm template ambari "${CHART_DIR}" \
             --set database.host=postgres.example.svc --set database.password=changeme \
+            --set adminPassword.existingSecret=ambari-admin \
             --set route.host=ambari.apps.example.com >/dev/null 2>&1 \
             && echo "refused: no master key"
+          ! helm template ambari "${CHART_DIR}" \
+            --set database.host=postgres.example.svc --set database.password=changeme \
+            --set masterKey.existingSecret=ambari-master-key \
+            --set route.host=ambari.apps.example.com >/dev/null 2>&1 \
+            && echo "refused: no first administrator password"
           ! helm template ambari "${CHART_DIR}" ${COMMON} \
             --set api.tls.enabled=true --set api.tls.existingSecret=c \
             --set route.host=ambari.apps.example.com --set route.tls.mode=edge >/dev/null 2>&1 \
@@ -126,7 +129,9 @@ jobs:
       - name: Install PyYAML
         run: pip install pyyaml
       - name: Template checks
-        run: ./tests/ambari/test-shutdown-and-logs.sh
+        run: |
+          ./tests/ambari/test-shutdown-and-logs.sh
+          ./tests/ambari/test-admin-password.sh
 
       - name: Package chart
         run: |

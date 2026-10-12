@@ -52,7 +52,7 @@ Whether anything is being read out of Vault. There is deliberately no separate m
 turning Vault on and then naming nothing to read from it is a mistake, not a configuration.
 */}}
 {{- define "ambari.vault.csiEnabled" -}}
-{{- if and .Values.global.vault.enabled (or .Values.vault.csi.database.enabled .Values.vault.csi.routeCert.enabled .Values.vault.csi.masterKey.enabled .Values.vault.csi.apiCert.enabled) -}}
+{{- if and .Values.global.vault.enabled (or .Values.vault.csi.database.enabled .Values.vault.csi.routeCert.enabled .Values.vault.csi.masterKey.enabled .Values.vault.csi.apiCert.enabled .Values.vault.csi.adminPassword.enabled) -}}
 true
 {{- end -}}
 {{- end -}}
@@ -131,6 +131,33 @@ without a master key silently encrypts the KDPS view's kubeconfig with a publish
 {{- .Values.vault.csi.masterKey.key -}}
 {{- else -}}
 {{- .Values.masterKey.existingSecretKey -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Where the first administrator password comes from. Required unless adminPassword.allowDefault is set:
+without it the server comes up with the public admin/admin, and the Route serves it as soon as the
+pod is Ready. Empty when the default is allowed and no password is given.
+*/}}
+{{- define "ambari.adminPassword.secretName" -}}
+{{- if .Values.adminPassword.existingSecret -}}
+{{- .Values.adminPassword.existingSecret -}}
+{{- else if and (include "ambari.vault.csiEnabled" .) .Values.vault.csi.adminPassword.enabled -}}
+{{- .Values.vault.csi.adminPassword.secretName | default (printf "%s-admin-password" (include "ambari.fullname" .)) -}}
+{{- else if .Values.adminPassword.value -}}
+{{- printf "%s-admin-password" (include "ambari.fullname" .) -}}
+{{- else if not .Values.adminPassword.allowDefault -}}
+{{- fail "the first administrator password is required: set adminPassword.existingSecret, or vault.csi.adminPassword.enabled, or adminPassword.value (adminPassword.allowDefault=true keeps admin/admin, for development only)" -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "ambari.adminPassword.secretKey" -}}
+{{- if .Values.adminPassword.existingSecret -}}
+{{- .Values.adminPassword.existingSecretKey -}}
+{{- else if and (include "ambari.vault.csiEnabled" .) .Values.vault.csi.adminPassword.enabled -}}
+{{- .Values.vault.csi.adminPassword.key -}}
+{{- else -}}
+{{- .Values.adminPassword.existingSecretKey -}}
 {{- end -}}
 {{- end -}}
 
