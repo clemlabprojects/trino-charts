@@ -162,6 +162,40 @@ no plain listener left: the client connector is one or the other, never both.
 {{- end -}}
 
 {{/*
+Whether /var/log/ambari-server is on a claim rather than an emptyDir. Any other type is refused, so a
+misspelt one does not quietly leave the logs in the container.
+*/}}
+{{- define "ambari.logs.onClaim" -}}
+{{- if .Values.logs.persistence.enabled -}}
+{{- $type := .Values.logs.persistence.type -}}
+{{- if eq $type "pvc" -}}
+true
+{{- else if ne $type "emptyDir" -}}
+{{- fail (printf "logs.persistence.type must be emptyDir or pvc, not %q" $type) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+The server is given stopTimeoutSeconds to stop before the entrypoint kills it, and Kubernetes kills
+the whole pod terminationGracePeriodSeconds after asking it to stop. A grace period no longer than
+the stop timeout would cut every slow shutdown short, which is what the stop timeout is there to
+prevent; the 5 extra seconds are for the entrypoint itself, which prints the server's last log lines
+after it has gone.
+*/}}
+{{- define "ambari.stopTimeoutSeconds" -}}
+{{- $stop := int .Values.stopTimeoutSeconds -}}
+{{- $grace := int .Values.terminationGracePeriodSeconds -}}
+{{- if lt $stop 1 -}}
+{{- fail (printf "stopTimeoutSeconds must be at least 1, not %v" .Values.stopTimeoutSeconds) -}}
+{{- end -}}
+{{- if lt $grace (add $stop 5) -}}
+{{- fail (printf "terminationGracePeriodSeconds (%d) must be at least stopTimeoutSeconds (%d) + 5, or Kubernetes kills the server before it has stopped" $grace $stop) -}}
+{{- end -}}
+{{- $stop -}}
+{{- end -}}
+
+{{/*
 Everything the deployment wants to say about ambari.properties, as one key=value per line. The
 entrypoint applies these after `ambari-server setup`, which rewrites that file.
 */}}

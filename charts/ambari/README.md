@@ -183,6 +183,31 @@ If the view authenticates to OpenShift with an API URL and an account rather tha
 is held in the Ambari database and there is nothing on disk to keep — you can run with
 `persistence.enabled=false`.
 
+## Logs and the audit trail
+
+The pod logs carry the server log and Ambari's security audit log — sign-ins, refused access,
+changes to users, groups and privileges — with every audit line prefixed `[ambari-audit] `. Collect
+them with the cluster's log stack: the log files under `/var/log/ambari-server` go with the pod.
+
+The image copies the audit log to the pod logs. `ambari-kdps` 2.8.2.0-160 and earlier do not, so keep
+`image.tag` at the chart's default or later.
+
+| Value | Default | |
+| --- | --- | --- |
+| `logs.persistence.enabled` | `false` | keep the log files on a volume: `type: emptyDir` (survives a container restart) or `type: pvc` (survives a new pod) |
+| `logs.rotation.enabled` | `true` | keep 5 rotated files of the server and audit logs instead of the server's own, much larger, settings |
+| `resources.*.ephemeral-storage` | `1Gi` / `3Gi` | sized for the rotation above |
+
+See [OPERATIONS.md](OPERATIONS.md) §5.
+
+## Stopping the pod
+
+On SIGTERM the server is given `stopTimeoutSeconds` (50) to stop cleanly — the KDPS view lets the
+operations in progress finish and Jetty closes its connections — before it is killed.
+`terminationGracePeriodSeconds` (90) has to be at least 5 seconds longer, and the chart refuses to
+render otherwise. The image's entrypoint does this: with `ambari-kdps` 2.8.2.0-160 and earlier,
+`stopTimeoutSeconds` has no effect and the server is killed as soon as the pod is asked to stop.
+
 ## Deploying with Argo CD
 
 The Route and the Deployment are annotated with sync waves, so Argo CD applies them in the order the

@@ -1,0 +1,20 @@
+{{- if and (include "ambari.logs.onClaim" .) (not .Values.logs.persistence.existingClaim) }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "ambari.fullname" . }}-logs
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "ambari.labels" . | nindent 4 }}
+  annotations:
+    # The server's logs, the security audit log among them. Records like these are deleted on
+    # purpose or not at all, so the claim outlives `helm uninstall`.
+    helm.sh/resource-policy: keep
+spec:
+  accessModes: {{- toYaml .Values.logs.persistence.accessModes | nindent 4 }}
+  {{- if .Values.logs.persistence.storageClass }}
+  storageClassName: {{ .Values.logs.persistence.storageClass | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.logs.persistence.size | quote }}
+{{- end }}

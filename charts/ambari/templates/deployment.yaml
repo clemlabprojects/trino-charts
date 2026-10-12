@@ -20,9 +20,16 @@ spec:
         {{- with .Values.podLabels }}{{- toYaml . | nindent 8 }}{{- end }}
       annotations:
         checksum/db: {{ include (print $.Template.BasePath "/secret-db.yaml") . | sha256sum }}
+        {{- if .Values.logs.rotation.enabled }}
+        # The server reads logback.xml at start-up, and a subPath mount never sees a later change.
+        checksum/logging: {{ include (print $.Template.BasePath "/configmap-logging.yaml") . | sha256sum }}
+        {{- end }}
         {{- with .Values.podAnnotations }}{{- toYaml . | nindent 8 }}{{- end }}
     spec:
       serviceAccountName: {{ include "ambari.serviceAccountName" . }}
+      # Longer than the server's own stop timeout (AMBARI_STOP_TIMEOUT below), so the server stops
+      # cleanly instead of being killed with the pod.
+      terminationGracePeriodSeconds: {{ int .Values.terminationGracePeriodSeconds }}
       {{- include "ambari.imagePullSecrets" . | nindent 6 }}
       {{- with .Values.podSecurityContext }}
       securityContext: {{- toYaml . | nindent 8 }}
@@ -129,6 +136,8 @@ spec:
                 secretKeyRef:
                   name: {{ include "ambari.masterKey.secretName" . }}
                   key: {{ include "ambari.masterKey.secretKey" . }}
+            - name: AMBARI_STOP_TIMEOUT
+              value: {{ include "ambari.stopTimeoutSeconds" . | quote }}
             - name: AMBARI_EXTRA_PROPERTIES
               value: |-
 {{ include "ambari.extraProperties" . | indent 16 }}
@@ -181,6 +190,16 @@ spec:
               mountPath: /vault/secrets
               readOnly: true
             {{- end }}
+            {{- if .Values.logs.persistence.enabled }}
+            - name: logs
+              mountPath: /var/log/ambari-server
+            {{- end }}
+            {{- if .Values.logs.rotation.enabled }}
+            - name: logging
+              mountPath: /etc/ambari-server/conf/logback.xml
+              subPath: logback.xml
+              readOnly: true
+            {{- end }}
             {{- with .Values.extraVolumeMounts }}{{- toYaml . | nindent 12 }}{{- end }}
       volumes:
         {{- if .Values.passwdShim.enabled }}
@@ -218,5 +237,23 @@ spec:
             readOnly: true
             volumeAttributes:
               secretProviderClass: {{ include "ambari.vault.secretProviderClassName" . }}
+        {{- end }}
+        {{- if .Values.logs.persistence.enabled }}
+        - name: logs
+          {{- if include "ambari.logs.onClaim" . }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.logs.persistence.existingClaim | default (printf "%s-logs" (include "ambari.fullname" .)) }}
+          {{- else }}
+          emptyDir:
+            {{- with .Values.logs.persistence.sizeLimit }}
+            sizeLimit: {{ . | quote }}
+            {{- else }} {}
+            {{- end }}
+          {{- end }}
+        {{- end }}
+        {{- if .Values.logs.rotation.enabled }}
+        - name: logging
+          configMap:
+            name: {{ include "ambari.fullname" . }}-logging
         {{- end }}
         {{- with .Values.extraVolumes }}{{- toYaml . | nindent 8 }}{{- end }}

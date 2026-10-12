@@ -206,13 +206,62 @@ serviceAccount:
   name: ""
   annotations: {}
 
+# ephemeral-storage is what the pod keeps on its node's disk: the server's logs (unless
+# logs.persistence puts them on a claim), the extracted views, Helm's cache and the pod logs. Without
+# a request the pod is among the first evicted when the node runs short of disk. The limit relies on
+# logs.rotation: with the server's own rotation settings its logs alone can reach nearly 3 GB.
 resources:
   requests:
     cpu: 500m
     memory: 2Gi
+    ephemeral-storage: 1Gi
   limits:
     cpu: "2"
     memory: 4Gi
+    ephemeral-storage: 3Gi
+
+# --- stopping the pod ------------------------------------------------------------------------
+# On SIGTERM the container's entrypoint signals the server and waits up to stopTimeoutSeconds (passed
+# to the image as AMBARI_STOP_TIMEOUT) for it to stop: the KDPS view gives the operations in progress
+# about 30 s to finish and Jetty closes its connections. A server still running then is killed.
+# Kubernetes kills the whole pod terminationGracePeriodSeconds after SIGTERM, so that must be at
+# least 5 s longer; the chart refuses to render otherwise. ambari-kdps images up to 2.8.2.0-160 ignore
+# AMBARI_STOP_TIMEOUT and let the server be killed straight away.
+terminationGracePeriodSeconds: 90
+stopTimeoutSeconds: 50
+
+# --- logs ------------------------------------------------------------------------------------
+# The pod logs carry the server log and the security audit log (sign-ins, refused access, changes
+# to users, groups and privileges). Audit lines are prefixed with "[ambari-audit] "; ambari-kdps
+# images up to 2.8.2.0-160 leave them out. The files under /var/log/ambari-server are only a working
+# copy: the cluster's log collection is where the audit trail has to be kept (OPERATIONS.md §5).
+logs:
+  # Keep /var/log/ambari-server on a volume rather than in the container's filesystem.
+  #   emptyDir — survives a container restart (crash, failed liveness probe), not a new pod.
+  #              Counts against the pod's ephemeral storage.
+  #   pvc      — survives a new pod too (upgrade, eviction, node drain). The claim is kept by
+  #              `helm uninstall`, like the data claim.
+  persistence:
+    enabled: false
+    type: emptyDir                  # emptyDir | pvc
+    sizeLimit: ""                   # emptyDir only, e.g. 2Gi
+    existingClaim: ""               # pvc only: use this claim instead of creating one
+    storageClass: ""
+    accessModes: [ReadWriteOnce]
+    size: 5Gi
+  # How many rotated files the server keeps of its log and its audit log (1 to 20 each). Its own
+  # settings keep up to 1.7 GB of server log, which suits a host with a disk of its own. With the pod
+  # logs as the record, a few files are enough, and they keep the logs within the ephemeral-storage
+  # limit above. Applied by mounting the chart's copy of the server's logback.xml over the image's;
+  # set enabled=false to keep the image's.
+  rotation:
+    enabled: true
+    server:
+      maxFileSize: 80MB
+      maxBackups: 5
+    audit:
+      maxFileSize: 50MB
+      maxBackups: 5
 
 # Ambari's Python calls getpwuid(), and OpenShift runs the pod under a random UID that has no
 # /etc/passwd entry. The init container writes one into a copy of /etc/passwd that the server then

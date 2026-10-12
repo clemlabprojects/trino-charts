@@ -209,8 +209,9 @@ project's usage against its ResourceQuota. What changes:
 | the database | it is all of Ambari's state; the pod holds nothing else of value |
 | the PVC | it holds the uploaded kubeconfig. It is annotated `helm.sh/resource-policy: keep`, so `helm uninstall` leaves it behind on purpose |
 
-Safe to change at any time: the image tag, the certificates, the route host, resources, replicas
-(keep it at 1 — the chart uses the `Recreate` strategy and a `ReadWriteOnce` claim).
+Safe to change at any time: the image tag, the certificates, the route host, resources, the stop
+timeout and grace period, the logs settings, replicas (keep it at 1 — the chart uses the `Recreate`
+strategy and a `ReadWriteOnce` claim).
 
 ---
 
@@ -225,7 +226,83 @@ by rolling the image tag back.
 
 ---
 
-## 5. When it does not work
+## 5. Stopping the pod, and the audit trail
+
+The clean stop and the audit lines in the pod logs both come from the image's entrypoint.
+`ambari-kdps` 2.8.2.0-160 and earlier do neither: the server is killed as soon as the pod is asked to
+stop, whatever `stopTimeoutSeconds` says, and the audit log stays in its file. Rolling `image.tag`
+back to one of them (§4) brings both problems back.
+
+### What happens when the pod stops
+
+An upgrade, `oc rollout restart`, `oc delete pod`, a node drain and a failed liveness probe all stop
+the pod the same way: Kubernetes sends SIGTERM, and kills whatever is left
+`terminationGracePeriodSeconds` (90) later. On SIGTERM the container signals the server and gives it
+`stopTimeoutSeconds` (50) to stop: the KDPS view lets the operations in progress finish, for about
+30 seconds at most, and Jetty closes its connections. A clean stop reads like this in the pod logs:
+
+```
+[entrypoint] stopping the server
+... KubernetesService - Shutting down KubernetesService static executor pools
+... AmbariServer - Joined the Server
+... CommandService - Shutting down all CommandService instances
+[entrypoint] the server has stopped
+```
+
+`[entrypoint] the server is still running after 50s; killing it` means something held the shutdown
+up; the lines before it say what was still running.
+
+**A deployment running at that moment.** A Helm install or upgrade that needs longer than the stop
+timeout is cut short. After the restart KDPS shows the operation as failed ("Operation interrupted
+by server restart."), and the release may be left `pending-install` or `pending-upgrade`. Run the
+operation again from KDPS: it recovers the release first — a first install that never completed is
+uninstalled and installed again, an interrupted upgrade is rolled back to the last revision that
+served and retried. Prefer to restart Ambari, or drain its node, when no deployment is running.
+
+### The audit trail
+
+Ambari records sign-ins and sign-outs, failed sign-ins, refused access, and every change to users,
+groups, privileges, view instances and view privileges in its audit log. That log is in the **pod logs**, one line per
+event, each prefixed with `[ambari-audit] `:
+
+```
+[ambari-audit] 2026-10-12T09:34:43.657Z, User(admin), RemoteIp(10.128.2.1), Operation(User login), Roles(Ambari: Ambari Administrator), Status(Success)
+```
+
+The file it comes from, `/var/log/ambari-server/ambari-audit.log`, is only a working copy: it is in
+the container, so it goes with every new pod and, unless `logs.persistence` is on, with every
+container restart. **Collect the pod logs with the cluster's log stack** (OpenShift Logging, or the
+forwarder that feeds your SIEM) and keep the `[ambari-audit]` lines for as long as your audit policy
+requires: the cluster's log store is the record. The prefix is there so a forwarder can route them
+to their own index or retention.
+
+The server's own log is in the pod logs as well, without a prefix.
+
+### Keeping the log files
+
+`logs.persistence` puts `/var/log/ambari-server` on a volume, for when the files themselves are
+wanted:
+
+| `logs.persistence.type` | The files survive |
+| --- | --- |
+| `emptyDir` | a container restart (crash, failed liveness probe), not a new pod. Counts against the pod's ephemeral storage; `sizeLimit` caps it |
+| `pvc` | a new pod too. The claim is `<release>-ambari-logs`, or `existingClaim`; `helm uninstall` leaves it behind |
+
+On vanilla Kubernetes the claim must be writable by the pod's group: set `podSecurityContext.fsGroup`.
+OpenShift does that on its own.
+
+### Disk use
+
+The pod requests 1Gi of ephemeral storage and is limited to 3Gi. The logs fit in that because the
+chart keeps 5 rotated files each of the server log (80 MB) and the audit log (50 MB, compressed when
+rotated), instead of the server's own settings, which let the logs alone reach nearly 3 GB
+(`logs.rotation`). It does so by mounting its own copy of the server's `logback.xml`. With
+`logs.rotation.enabled=false`, raise the ephemeral-storage limit, or the pod is evicted once its logs
+outgrow it.
+
+---
+
+## 6. When it does not work
 
 **No pod at all, and nothing in the events for it.**
 Look at the Deployment, not the pod. `ReplicaSetCreateError ... pod security enforce level that is
@@ -253,14 +330,20 @@ fallback passphrase, so fix it before uploading a kubeconfig.
 ### Reading the logs
 
 ```
-oc -n kdps logs deploy/ambari -c ambari                  # entrypoint + server
+oc -n kdps logs deploy/ambari -c ambari                  # entrypoint + server + audit
+oc -n kdps logs deploy/ambari -c ambari | grep '^\[ambari-audit\]'   # the audit trail only
+oc -n kdps logs deploy/ambari -c ambari --previous       # the container before the last restart
 oc -n kdps logs deploy/ambari -c https-keystore          # the certificate conversion
 oc -n kdps exec deploy/ambari -- tail -100 /var/log/ambari-server/ambari-server.log
+oc -n kdps exec deploy/ambari -- ambari-server status
 ```
+
+`oc logs` only reaches back to the current container and the one before it; older audit lines are in
+the cluster's log store (§5).
 
 ---
 
-## 6. Backup and restore
+## 7. Backup and restore
 
 What you need to be able to restore:
 
@@ -273,7 +356,7 @@ chart pointing at it. The server finds the schema present and starts against it.
 
 ---
 
-## 7. Notes on the security posture
+## 8. Notes on the security posture
 
 * The server runs as an arbitrary non-root UID under `restricted-v2`. No added SCC, no privileged
   container, no `runAsUser`.

@@ -39,6 +39,7 @@ jobs:
       ollama-changed: ${{ steps.filter.outputs.ollama }}
       gitlab-changed: ${{ steps.filter.outputs.gitlab }}
       openmetadata-changed: ${{ steps.filter.outputs.openmetadata }}
+      ambari-changed: ${{ steps.filter.outputs.ambari }}
     steps:
       - uses: actions/checkout@v5
       - name: Get changed related files
@@ -69,6 +70,11 @@ jobs:
             openmetadata:
               - 'charts/openmetadata/**'
               - 'tests/openmetadata/**'
+              - '.helmignore'
+              - '.github/**'
+            ambari:
+              - 'charts/ambari/**'
+              - 'tests/ambari/**'
               - '.helmignore'
               - '.github/**'
 
@@ -163,6 +169,26 @@ jobs:
       - name: Run template checks
         run: ./tests/openmetadata/test-servicemonitor.sh
 
+  test-ambari:
+    runs-on: ubuntu-latest
+    name: test ambari templates
+    needs: [changes]
+    if: ${{needs.changes.outputs.ambari-changed == 'true'}}
+    steps:
+      - uses: actions/checkout@v5
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.19.0
+      # The checks parse the rendered manifests and the logback.xml they carry.
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.x'
+      - name: Install PyYAML
+        run: pip install pyyaml
+      - name: Run template checks
+        run: ./tests/ambari/test-shutdown-and-logs.sh
+
   docs:
     runs-on: ubuntu-latest
     steps:
@@ -174,7 +200,7 @@ jobs:
 
   # Everything above is CI, everything here and below is for releases and runs only on non-pull-request events
   sync-readme:
-    needs: [lint, test, test-gateway, test-ollama, test-openmetadata, docs]
+    needs: [lint, test, test-gateway, test-ollama, test-openmetadata, test-ambari, docs]
     runs-on: ubuntu-latest
     if: ${{ always() && !failure() && github.event_name != 'pull_request'}}
     steps:
@@ -203,7 +229,7 @@ jobs:
           git push
 
   release:
-    needs: [lint, test, test-gateway, test-ollama, test-openmetadata, docs, sync-readme]
+    needs: [lint, test, test-gateway, test-ollama, test-openmetadata, test-ambari, docs, sync-readme]
     runs-on: ubuntu-latest
     if: ${{ always() && !failure() && github.event_name != 'pull_request'}}
     steps:
@@ -223,7 +249,7 @@ jobs:
           CR_SKIP_EXISTING: true
 
   release-harbor:
-    needs: [lint, test, test-gateway, test-ollama, test-openmetadata, docs, sync-readme]
+    needs: [lint, test, test-gateway, test-ollama, test-openmetadata, test-ambari, docs, sync-readme]
     runs-on: ubuntu-latest
     if: ${{ always() && !failure() && github.event_name != 'pull_request'}}
     steps:

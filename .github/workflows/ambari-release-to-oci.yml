@@ -6,6 +6,7 @@ on:
     branches: [ main ]
     paths:
       - "charts/ambari/**"
+      - "tests/ambari/**"
       - ".github/workflows/ambari-release-to-oci.yml"
 
 concurrency:
@@ -42,6 +43,24 @@ jobs:
           echo "chart_name=${CHART_NAME}"       >> "$GITHUB_OUTPUT"
           echo "chart_version=${CHART_VERSION}" >> "$GITHUB_OUTPUT"
           echo "Chart: ${CHART_NAME}  Version: ${CHART_VERSION}"
+
+      # The clean stop (stopTimeoutSeconds) and the [ambari-audit] lines in the pod logs are done by
+      # the image's entrypoint, and ambari-kdps 2.8.2.0-160 and earlier do neither. A chart published
+      # on one of them would promise both in its notes and documentation while the pod does neither,
+      # so it waits here until appVersion names an image built with that entrypoint. This check is
+      # here rather than in tests/ambari so that it holds back this chart only, not the release of
+      # the others.
+      - name: Refuse an image older than the chart needs
+        run: |
+          set -euo pipefail
+          APP_VERSION=$(yq -r '.appVersion' "${CHART_DIR}/Chart.yaml")
+          LAST_UNSUPPORTED="2.8.2.0-160"
+          NEWER=$(printf '%s\n%s\n' "${LAST_UNSUPPORTED}" "${APP_VERSION}" | sort -V | tail -n 1)
+          if [ "${APP_VERSION}" = "${LAST_UNSUPPORTED}" ] || [ "${NEWER}" != "${APP_VERSION}" ]; then
+            echo "::error::appVersion ${APP_VERSION} is an ambari-kdps image that neither stops the server cleanly nor copies the audit log to the pod logs. Set appVersion to an image built after ${LAST_UNSUPPORTED} from the current entrypoint, then publish."
+            exit 1
+          fi
+          echo "appVersion ${APP_VERSION} is later than ${LAST_UNSUPPORTED}"
 
       - name: Login to Harbor OCI registry (via helm)
         run: |
@@ -99,6 +118,15 @@ jobs:
             --set api.tls.enabled=true --set api.tls.existingSecret=c \
             --set route.host=ambari.apps.example.com --set route.tls.mode=edge >/dev/null 2>&1 \
             && echo "refused: HTTPS server behind an edge route"
+
+      # The checks parse the rendered manifests and the logback.xml they carry.
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.x'
+      - name: Install PyYAML
+        run: pip install pyyaml
+      - name: Template checks
+        run: ./tests/ambari/test-shutdown-and-logs.sh
 
       - name: Package chart
         run: |

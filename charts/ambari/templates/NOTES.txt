@@ -6,6 +6,8 @@ Ambari {{ .Chart.AppVersion }} (standalone, hosting the KDPS view) is installing
              Back it up. Everything encrypted with it -- the credential store, and the kubeconfig
              the KDPS view stores -- becomes unreadable if it is lost or changed.
   Agents   : {{ if .Values.agent.enabled }}enabled{{ else }}none, so no agent listeners and no generated CA{{ end }}
+  Audit log: in the pod logs, every line prefixed "[ambari-audit] ". Collect them with the cluster's
+             log stack: the log files are {{ if not .Values.logs.persistence.enabled }}in the container and go with it{{ else if include "ambari.logs.onClaim" . }}on a claim, but are only a working copy{{ else }}on an emptyDir and go with the pod{{ end }}.
 {{- if and .Values.route.enabled (.Capabilities.APIVersions.Has "route.openshift.io/v1") }}
   URL      : https://{{ .Values.route.host }}/
   TLS      : {{ if .Values.api.tls.enabled }}terminated by Ambari on {{ .Values.api.tls.port }}, route {{ .Values.route.tls.mode }}{{ else }}terminated by the router ({{ .Values.route.tls.mode }}){{ if eq .Values.route.tls.mode "edgeWithCert" }}, certificate from Secret {{ include "ambari.route.tlsSecretName" . }}{{ end }}{{ end }}
