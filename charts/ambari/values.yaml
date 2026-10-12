@@ -53,7 +53,8 @@ database:
   existingSecret: ""
   existingSecretPasswordKey: password
   password: ""
-  # Ambari's own schema is created on first start when the database is empty.
+  # Ambari's own schema is created on first start when the database holds none, in one transaction:
+  # when that fails, nothing of it is kept and psql's error is in the pod logs.
   #
   # Driver properties, passed straight to the JDBC driver. A database outside the cluster normally
   # wants TLS, which is what these are for:
@@ -62,6 +63,22 @@ database:
   #     sslmode: verify-full
   #     sslrootcert: /vault/secrets/pg-ca.pem
   properties: {}
+
+# --- the database schema ----------------------------------------------------------------------
+# Each Ambari line -- the first three numbers of the image's version: every 2.8.2.x image is the 2.8.2
+# line -- has a database schema of its own, and the server does not start on another line's. Changing
+# image.tag within a line needs nothing. Moving it to a new line (2.8.3, 2.9) stops the pod before the
+# server starts, with both versions in its logs and the database untouched, until the schema is
+# upgraded (OPERATIONS.md §4):
+#   1. back the database up;
+#   2. sync the new image.tag with enabled=true: the schema is upgraded before the server starts;
+#   3. once the pod is Ready, set it back to false, so that the next move waits for a backup again.
+# A schema of a later line than the image's is never downgraded: restore the backup instead.
+# The upgrade runs before the server listens, so within the time the liveness probe gives the server
+# to come up (initialDelaySeconds + periodSeconds x failureThreshold, 300 s by default).
+# ambari-kdps images up to 2.8.2.0-160 ignore this.
+schemaUpgrade:
+  enabled: false
 
 # --- master key -------------------------------------------------------------------------------
 # Ambari encrypts its credential store with this key, and the KDPS view encrypts the kubeconfig you

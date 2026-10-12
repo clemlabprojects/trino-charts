@@ -148,6 +148,11 @@ spec:
             - name: AMBARI_ADMIN_ALLOW_DEFAULT
               value: "true"
             {{- end }}
+            {{- if .Values.schemaUpgrade.enabled }}
+            # Upgrades a database schema of an earlier Ambari line before the server starts.
+            - name: AMBARI_SCHEMA_UPGRADE
+              value: "true"
+            {{- end }}
             - name: AMBARI_STOP_TIMEOUT
               value: {{ include "ambari.stopTimeoutSeconds" . | quote }}
             - name: AMBARI_EXTRA_PROPERTIES

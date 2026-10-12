@@ -31,7 +31,8 @@ of its own, and the master key it needs must never change once anything has been
   (`route.tls.externalCertificate` was introduced there). Everything else works on plain Kubernetes
   through `ingress.*`.
 * A PostgreSQL database and a role that can create tables in it. The schema is loaded on first
-  start when the database is empty.
+  start when the database holds none, in one transaction; when that fails, psql's error is in the
+  pod logs and nothing of the schema is kept.
 * A `ReadWriteOnce` StorageClass. See [Persistence](#persistence) for what is kept and why.
 
 The image runs as an arbitrary non-root UID, so no SCC beyond `restricted-v2` is needed.
@@ -56,6 +57,28 @@ database:
   existingSecret: ambari-db
   existingSecretPasswordKey: password
 ```
+
+## Upgrading Ambari
+
+Each Ambari line — the first three numbers of the image's version, so every 2.8.2.x image is the
+2.8.2 line — has a database schema of its own, and the server does not start on another line's.
+Before it starts the server, the pod compares the database's schema with the image and says in its
+logs what it found:
+
+| `image.tag` moves | What happens |
+| --- | --- |
+| within the same line | nothing else to do; rolling back is just as safe |
+| to a later line, `schemaUpgrade.enabled: false` (the default) | the pod stops before the server starts, names both versions and changes nothing; setting the tag back recovers |
+| to a later line, `schemaUpgrade.enabled: true` | the schema is upgraded before the server starts. Back the database up first, and turn the value off again once the pod is Ready |
+| back to an earlier line after an upgrade | the pod stops: a schema is never downgraded. Restore the backup taken before the upgrade |
+
+```yaml
+schemaUpgrade:
+  enabled: true      # only for the sync that moves image.tag to a new line, after a backup
+```
+
+The full procedure, and how to go back, is in [OPERATIONS.md](OPERATIONS.md) §4. A backup restores
+only onto an image of the line it was taken with ([OPERATIONS.md](OPERATIONS.md) §7).
 
 ## The master key
 

@@ -132,6 +132,7 @@ jobs:
         run: |
           ./tests/ambari/test-shutdown-and-logs.sh
           ./tests/ambari/test-admin-password.sh
+          ./tests/ambari/test-schema-upgrade.sh
 
       - name: Package chart
         run: |

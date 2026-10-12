@@ -15,6 +15,11 @@ Ambari {{ .Chart.AppVersion }} (standalone, hosting the KDPS view) is installing
              server can sign in as the Ambari Administrator until the password is changed.
              Development only.
 {{- end }}
+{{- if .Values.schemaUpgrade.enabled }}
+  Schema   : upgraded before the server starts when the database is from an earlier Ambari line
+             (schemaUpgrade.enabled). Back the database up before this sync, and set it back to
+             false once the pod is Ready.
+{{- end }}
   Agents   : {{ if .Values.agent.enabled }}enabled{{ else }}none, so no agent listeners and no generated CA{{ end }}
   Audit log: in the pod logs, every line prefixed "[ambari-audit] ". Collect them with the cluster's
              log stack: the log files are {{ if not .Values.logs.persistence.enabled }}in the container and go with it{{ else if include "ambari.logs.onClaim" . }}on a claim, but are only a working copy{{ else }}on an emptyDir and go with the pod{{ end }}.

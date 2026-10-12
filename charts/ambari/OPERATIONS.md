@@ -83,7 +83,18 @@ database:
     sslrootcert: /vault/secrets/pg-ca.pem
 ```
 
-The schema is loaded automatically on first start, but only when the database is completely empty.
+The schema is loaded automatically on first start when the database holds no Ambari schema, in a
+single transaction: when the load fails, nothing of it is kept, the pod logs show psql's error, and
+the container exits. From PostgreSQL 15 on, a role that does not own the database cannot create
+tables in its `public` schema until it is granted the right:
+
+```
+GRANT CREATE ON SCHEMA public TO ambari;
+```
+
+The tables go where the role's `search_path` puts them: in `public`, unless the database has a schema
+named after the role. Either way works; the pod finds them there on every start and points the server
+and the schema upgrade (§4) at that schema.
 
 ### 1.3 The first administrator password — required
 
@@ -321,10 +332,11 @@ project's usage against its ResourceQuota. What changes:
 | the database | it is all of Ambari's state; the pod holds nothing else of value |
 | the PVC | it holds the uploaded kubeconfig. It is annotated `helm.sh/resource-policy: keep`, so `helm uninstall` leaves it behind on purpose |
 
-Safe to change at any time: the image tag, the certificates, the route host, resources, the stop
-timeout and grace period, the logs settings, replicas (keep it at 1 — the chart uses the `Recreate`
-strategy and a `ReadWriteOnce` claim). The first administrator password's Secret can change too, but
-to no effect: it is only used while the password is still the default (§1.3).
+Safe to change at any time: the image tag within the same Ambari line (moving to a new line is §4),
+the certificates, the route host, resources, the stop timeout and grace period, the logs settings,
+replicas (keep it at 1 — the chart uses the `Recreate` strategy and a `ReadWriteOnce` claim). The
+first administrator password's Secret can change too, but to no effect: it is only used while the
+password is still the default (§1.3).
 
 A release installed with chart 0.1.10 or earlier is the exception for the image tag and the chart
 version: read §4 first, or the new pod may not start, and `Recreate` has already removed the old one.
@@ -337,8 +349,85 @@ Change `image.tag` and let Argo CD sync. The pod is replaced; stacks, view jars 
 `/var/lib/ambari-server` come from the new image, which is why only the view's working directory is
 persisted rather than the whole directory.
 
-Take a database backup first. Ambari migrates its own schema on start-up, and that is not reversible
-by rolling the image tag back.
+What else an upgrade needs depends on the Ambari **line**: the first three numbers of the image's
+version. Each line has a database schema of its own, and the server does not start on another
+line's. Before the server starts, the pod compares the two and says in its logs what it found.
+
+### Within the same Ambari line: nothing else to do
+
+Every image of a line runs on that line's schema: from `2.8.2.0-161` to `2.8.2.0-175`, or to a
+`2.8.2.1` build, the pod starts as before, and its logs say
+`the database schema (2.8.2) is the one Ambari 2.8.2.0 runs on`. Rolling the tag back within the line
+is just as safe.
+
+### To a new Ambari line: back up, then upgrade the schema
+
+Moving to a new line (2.8.3, 2.9) needs the database schema upgraded, and the pod does that only when
+asked to, after a backup. Without it the new pod stops before the server starts, changes nothing, and
+says why:
+
+```
+[entrypoint] the database schema is Ambari 2.8.2, older than this server, Ambari 2.8.3.0, which
+[entrypoint] runs on the 2.8.3 schema. Nothing was changed: an image of the 2.8.2 line still runs
+[entrypoint] on this database. To upgrade the schema to 2.8.3, back the database up, then start this
+[entrypoint] image with AMBARI_SCHEMA_UPGRADE=true (in the ambari chart, schemaUpgrade.enabled=true).
+```
+
+Setting `image.tag` back to the earlier image recovers from that: nothing was migrated.
+
+To upgrade:
+
+1. **Back the database up**, and keep the backup until the new line has proved itself:
+   ```
+   pg_dump -h pg01.corp.example.com -U ambari -Fc -f ambari-2.8.2-$(date +%F).dump ambari
+   ```
+   This backup is the only way back to the earlier line (below). Keep the master key's backup with
+   it (§7); the upgrade does not change the key.
+2. **Sync the new `image.tag` with the schema upgrade turned on:**
+   ```yaml
+   image:
+     tag: 2.8.3.0-12
+   schemaUpgrade:
+     enabled: true
+   ```
+   The pod upgrades the schema before the server starts and then starts as usual. Its logs show
+   `upgrading the database schema from 2.8.2 to 2.8.3`, what the upgrade did with any warning or
+   error it logged, and then `upgraded the database schema to 2.8.3`. Read the warnings before going
+   on: a change the upgrade could not make may be logged only as a warning.
+3. **Once the pod is Ready, turn it off again** (`schemaUpgrade.enabled: false`) and sync, so that the
+   next move to a new line waits for a backup again. Until you do, every start says
+   `AMBARI_SCHEMA_UPGRADE=true has nothing to do`.
+
+`schemaUpgrade` is in chart 0.1.12 and later. With an earlier chart, pass the same switch through
+`extraEnv`:
+
+```yaml
+extraEnv:
+  - name: AMBARI_SCHEMA_UPGRADE
+    value: "true"
+```
+
+Leave the pod alone while the upgrade runs. It runs before the server listens, so within the time
+the liveness probe gives the server to come up: `livenessProbe.initialDelaySeconds` plus
+`periodSeconds` × `failureThreshold`, 300 seconds by default, which is ample for Ambari's own schema.
+Should the pod logs show the container restarted during the upgrade, raise
+`livenessProbe.initialDelaySeconds` for the upgrade sync.
+
+**If the upgrade fails**, the container exits with the reason, taken from the server's log, and
+while `schemaUpgrade.enabled` is on, each restart runs the upgrade again. Remove the cause, or go back
+to the earlier line as below.
+
+**Going back to the earlier line after an upgrade.** Once the schema is upgraded, an image of the
+earlier line does not start on it, and nothing downgrades a schema:
+
+```
+[entrypoint] the database schema is Ambari 2.8.3, newer than this server, Ambari 2.8.2.0, and
+[entrypoint] a schema is never downgraded: this server cannot run on it. Run an image of the 2.8.3 line,
+[entrypoint] or restore the database backup taken before the schema was upgraded.
+```
+
+Rolling `image.tag` back is not enough: restore the backup taken in step 1 (§7) and set `image.tag` to
+the earlier image. Whatever was changed in Ambari since the upgrade is lost with it.
 
 ### From chart 0.1.10 or earlier
 
@@ -445,6 +534,30 @@ lower than privileged` means the namespace label from §1.5 is missing.
 The Secret named in `masterKey.existingSecret` does not exist, or the key inside it is not the one
 in `masterKey.existingSecretKey`.
 
+**`could not read the Ambari schema version from the database`.**
+psql's error above it says why: usually `database.host`, `database.name`, `database.user` or the
+password in the database Secret is wrong, or the database does not exist yet.
+
+**`the Ambari schema could not be loaded, and nothing of it was kept`.**
+The first start could not create the schema; psql's error is above it. `permission denied for schema
+public` means the role cannot create tables (§1.2). `relation ... already exists` means the database
+holds Ambari tables but no schema version: an image up to 2.8.2.0-160 began loading the schema and did
+not finish. Start again from an empty database (`DROP DATABASE` and create it again).
+
+**`the database schema is Ambari …, older than this server`.**
+The image is of a newer Ambari line than the database. Nothing was changed. Either set `image.tag`
+back to an image of the database's line, or upgrade the schema: §4.
+
+**`the database schema is Ambari …, newer than this server`.**
+The database was upgraded to a later line, and the image is of an earlier one: `image.tag` was rolled
+back after a schema upgrade, or the database was restored from a backup of a later line. Set
+`image.tag` to an image of the database's line, or restore a backup of this line (§7).
+
+**`the schema upgrade failed; the server's log above says why`.**
+The reason is in the lines above it. With `schemaUpgrade.enabled` still on, the next start runs the
+upgrade again; once the cause is removed it completes. To give up instead, restore the backup taken
+before the upgrade and set `image.tag` back (§4).
+
 **`AMBARI_ADMIN_PASSWORD is not set: the first administrator password is required.`**
 The database is new, or its `admin` account still accepts `admin` / `admin`, and no password reached
 the container. The same as above, for `adminPassword.existingSecret` and
@@ -526,9 +639,27 @@ What you need to be able to restore:
 2. **The master key** — without it the backup is unreadable.
 3. **The kubeconfig**, if you uploaded one. Or just upload it again; it is not the source of truth.
 
-To restore: recreate the master key Secret with the *same* key, restore the database, install the
-chart pointing at it. The server finds the schema present and starts against it. The administrator
-password is the one in the backup; the `adminPassword` Secret is only used on an empty database.
+The database, for example:
+
+```
+pg_dump -h pg01.corp.example.com -U ambari -Fc -f ambari-2.8.2-$(date +%F).dump ambari
+```
+
+Name the dump after the Ambari line it was taken with, the first three numbers of `image.tag`: a
+backup restores only onto an image of the **same line**. The server does not start on another
+line's schema, and the pod says so (§6). A backup of an earlier line can be brought forward once it is
+restored, with the schema upgrade (§4); one of a later line cannot be brought back to an earlier image.
+
+To restore: recreate the master key Secret with the *same* key, restore the database into an empty
+one, and install the chart pointing at it with `image.tag` of the backup's line:
+
+```
+pg_restore -h pg01.corp.example.com -U ambari -d ambari --no-owner ambari-2.8.2-2026-10-12.dump
+```
+
+The server finds the schema present — the pod logs say `the database schema (2.8.2) is the one
+Ambari 2.8.2.0 runs on` — and starts against it. The administrator password is the one in the backup;
+the `adminPassword` Secret is only used on an empty database.
 
 ---
 
