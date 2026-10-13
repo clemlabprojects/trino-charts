@@ -448,6 +448,26 @@ project's usage against its ResourceQuota. What changes:
 * **Certificates.** cert-manager ClusterIssuers are not visible to such an account. Use the Ambari
   internal CA (the default, kept on the PVC: §3) or a certificate issued by your own CA; add that CA
   under KDPS → Truststores so the deployed services trust each other.
+* **The PKI project (Truststores and Company CAs).** KDPS keeps the truststores of the Truststores
+  page and the Company CAs of the Certificate Authorities page as Secrets in one project,
+  `ambari-pki` by default, which such an account cannot create. Until it can write there, both pages
+  show *KDPS cannot write Secrets in project ambari-pki* and nothing can be added. Once, the platform
+  team creates the project and grants the account `edit` in it:
+
+  ```
+  oc new-project ambari-pki            # or a name of your own, e.g. <prefix>-kdps-pki
+  oc -n ambari-pki create rolebinding kdps-pki-edit --clusterrole=edit --user=<account>
+  # for a ServiceAccount: --serviceaccount=<namespace>:<name>
+  ```
+
+  A Role limited to `get`, `list`, `create`, `update` and `delete` on `secrets` is enough instead of
+  `edit`. With a name of your own, set it in KDPS → Cluster Settings → *Truststores and Company CAs*.
+  The Company CAs hold their private keys, so give this project only to KDPS and its administrators,
+  never to a project releases are deployed to. Truststores hold public certificates only; they may get
+  a project of their own there (*Truststore project*).
+
+  A deploy that selects a truststore KDPS cannot read stops and names it, instead of deploying a
+  release that then fails its TLS handshakes.
 * **GitOps (Flux).** Works the same way; the chart source written for Flux is the chart repository
   configured in KDPS.
 
