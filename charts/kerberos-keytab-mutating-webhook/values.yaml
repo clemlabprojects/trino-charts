@@ -7,7 +7,7 @@ image:
   # -- Repository location of the Trino image, typically `organization/imagename`
   repository: kerberos-keytab-mutating-webhook
   # -- Image tag, defaults to the Trino release version specified as `appVersion` from Chart.yaml
-  tag: "1.0.0.1"
+  tag: "1.0.0.10"
   # -- Optional digest value of the image specified as `sha256:abcd...`. A specified value overrides `tag`.
   digest: ""
   # -- When true, only the content in `repository` is used as image reference
@@ -32,14 +32,15 @@ backend:
   caSecretName: ambari-root-ca
   caMountPath: /ca
   caFile: ca.crt
-# needs mtls + basic in order to encrypt communication to Ambari from webhook and be able to authenticate
+# How the webhook authenticates to the KDPS view, which it reaches through the Ambari REST API:
+# - mtls: each keytab request is signed with the client certificate the view issued (clientMtls.secretName);
+#   the view refuses requests it cannot verify.
+# - webhook-account: signs in to Ambari as auth.account.username, an account the view creates that may only open
+#   its view instance. Its password is derived from the client key, so no password is stored in Kubernetes.
 auth:
-  mode: "mtls,basic"        # always do mTLS + Basic
-  basic:
-    secretName: webhook-user
-    mountPath: /basic-auth
-    usernameKey: username   # keys created by the View backend
-    passwordKey: password
+  mode: "mtls,webhook-account"
+  account:
+    username: webhook-user  # set by the view
 
 # (created by Ambari)
 clientMtls:
@@ -62,8 +63,8 @@ selectors:
   namespace: { key: security.clemlab.com/webhooks-enabled, value: "true" }
   object:    { key: security.clemlab.com/needs-keytab, value: "true" }
 
-rbac: { create: true }
-
+# The webhook makes no Kubernetes API call (the pod comes in the AdmissionReview, the view writes the keytab
+# Secret), so it gets no RBAC role and no ServiceAccount token.
 resources:
   limits: { cpu: 200m, memory: 256Mi }
   requests: { cpu: 50m,  memory: 128Mi }
