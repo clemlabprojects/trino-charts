@@ -438,6 +438,9 @@ server:
       secretName: ""
       # -- Key within the Secret that holds the token.
       secretKey: token
+      # -- Key within the same Secret that holds the CA certificate used to verify the scaler's endpoint
+      # (e.g. `service-ca.crt` in an OpenShift service-account-token Secret). Empty = no `ca` parameter.
+      caKey: ""
     triggers: []
     # server.keda.triggers -- List of triggers to activate scaling of the target resource
     # @raw

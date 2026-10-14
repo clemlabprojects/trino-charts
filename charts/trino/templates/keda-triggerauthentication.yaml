@@ -3,7 +3,8 @@ KEDA TriggerAuthentication for authenticating a scaler (e.g. a Prometheus/Thanos
 token. Needed on OpenShift, where worker autoscaling reads metrics from the platform's built-in
 (user-workload) monitoring via the thanos-querier tenancy endpoint, which requires a bearer token held
 in a Secret. Enable with `server.keda.triggerAuthentication.enabled=true` and reference it from a trigger
-via `authenticationRef.name`.
+via `authenticationRef.name`. With `caKey` set, the same Secret also supplies the CA the scaler uses to
+verify the endpoint's certificate (`ca` parameter), so the trigger needs no `unsafeSsl`.
 */ -}}
 {{- if and .Values.server.keda.enabled .Values.server.keda.triggerAuthentication.enabled }}
 apiVersion: keda.sh/v1alpha1
@@ -18,4 +19,9 @@ spec:
     - parameter: bearerToken
       name: {{ required "server.keda.triggerAuthentication.secretName is required when triggerAuthentication is enabled" .Values.server.keda.triggerAuthentication.secretName }}
       key: {{ .Values.server.keda.triggerAuthentication.secretKey | default "token" }}
+    {{- with .Values.server.keda.triggerAuthentication.caKey }}
+    - parameter: ca
+      name: {{ required "server.keda.triggerAuthentication.secretName is required when triggerAuthentication is enabled" $.Values.server.keda.triggerAuthentication.secretName }}
+      key: {{ . }}
+    {{- end }}
 {{- end }}
