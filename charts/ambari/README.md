@@ -10,6 +10,7 @@ install points at a database you already run. What the view keeps on disk is on 
 ([Persistence](#persistence)).
 
 ```
+# the secrets named here are created first: OPERATIONS.md section 1
 helm install ambari oci://registry.clemlab.com/clemlabprojects/charts/ambari \
   --namespace kdps --create-namespace \
   --set database.host=postgres.databases.svc.cluster.local \
@@ -312,7 +313,7 @@ spec:
   source:
     repoURL: registry.clemlab.com/clemlabprojects/charts
     chart: ambari
-    targetRevision: 0.1.0
+    targetRevision: 0.1.13
     helm:
       valueFiles: []
       values: |
@@ -335,10 +336,34 @@ spec:
     syncOptions: [CreateNamespace=true]
 ```
 
+## Supported platforms
+
+What the chart and the KDPS view of the image it names are validated against. A version outside
+these may work; it is not one the release was checked on.
+
+| | Validated |
+| --- | --- |
+| Chart and image | chart 0.1.13 runs the `ambari-kdps` image named by its `appVersion`. Install a chart with the image it was released with: an earlier `image.tag` lacks what the chart relies on (OPERATIONS.md §2) |
+| OpenShift | 4.16 or later (the Route serving your own certificate needs it); validated on OpenShift Local (CRC) and a 4.x cluster of the development environment |
+| Kubernetes | a current release with `ingress.*` in place of the Route |
+| PostgreSQL | 16, which the image tests run against; the client in the image is the UBI 9 one. From 15 on, a user that does not own the database needs a grant on its `public` schema |
+| Helm | 3.22.0, the CLI in the image; releases are installed with the Helm library inside the view |
+| Flux (GitOps deployments) | 2.3 or later, with the prerequisites in OPERATIONS.md §2, "GitOps (Flux)". KDPS writes `v2` and `v1` and reads the version the cluster serves |
+| KEDA / Custom Metrics Autoscaler | the Custom Metrics Autoscaler operator on OpenShift and KEDA 2.x on Kubernetes, watching the projects KDPS deploys to (OPERATIONS.md §2, "An account limited to its own projects") |
+| Argo CD / OpenShift GitOps | deploys this chart; any release that renders Helm 3 charts |
+
+| Chart | Ambari / KDPS view build it needs |
+| --- | --- |
+| 0.1.9 | 2.8.2.0-160; superseded |
+| 0.1.13 and later | an image built after 2.8.2.0-160 from the view that finds out it runs in a pod from the `KUBERNETES_SERVICE_*` variables, since the chart mounts no token by default. With an earlier image set `serviceAccount.automountToken=true`. `appVersion` in `Chart.yaml` names the image to use once a build contains it |
+
 ## Pointing the view at a cluster
 
 Once the server is up, sign in as `admin` with the first administrator password and configure the
-KDPS view once:
+KDPS view once. For production use a ServiceAccount: the pod's own (first below), or a kubeconfig
+holding the token of a ServiceAccount made for KDPS. An uploaded `oc login` kubeconfig expires within
+a day, and an OpenShift login needs a person's password kept in KDPS. The pod's ServiceAccount is
+used only when you chose it there; the grants KDPS needs belong to the account it connects as.
 
 * **This pod's ServiceAccount** — with `inClusterServiceAccount.enabled=true`, KDPS → Configuration →
   *Connect with this ServiceAccount*. No credential to upload or store, and Kubernetes renews the

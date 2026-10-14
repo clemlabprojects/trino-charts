@@ -5,6 +5,11 @@ Ambari {{ .Chart.AppVersion }} (standalone, hosting the KDPS view) is installing
   Master key from Secret {{ include "ambari.masterKey.secretName" . }} (key {{ include "ambari.masterKey.secretKey" . }})
              Back it up. Everything encrypted with it -- the credential store, and the kubeconfig
              the KDPS view stores -- becomes unreadable if it is lost or changed.
+{{- if not (or .Values.serviceAccount.automountToken .Values.inClusterServiceAccount.enabled) }}
+  Token    : the pod is given no ServiceAccount token. An ambari-kdps image of 2.8.2.0-160 or earlier
+             (a pinned image.tag) then queries the cluster's monitoring through the API server's
+             proxy: set serviceAccount.automountToken=true with such an image.
+{{- end }}
 {{- if include "ambari.persistence.onClaim" . }}
   Data     : claim {{ .Values.persistence.existingClaim | default (include "ambari.fullname" .) }}: the KDPS internal CA, the credential store with the Git
              credentials of GitOps releases, operation records and the uploaded kubeconfig. Back it

@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 
 # Render-only checks (no cluster needed) for KDPS connecting with the Ambari pod's own ServiceAccount: the pod asks for
-# its ServiceAccount token when inClusterServiceAccount.enabled is set and otherwise leaves it to the ServiceAccount, as
-# earlier charts did (KDPS views built before this connection take a pod without a token for one outside the cluster),
-# the chart grants that ServiceAccount nothing either way, and the release notes name the identity KDPS acts as and
+# its ServiceAccount token when inClusterServiceAccount.enabled or serviceAccount.automountToken is set and is otherwise
+# given none (KDPS does not use it, and whoever gets into the pod would hold the account's grants), the chart grants that ServiceAccount nothing either way, and the release notes name the identity KDPS acts as and
 # the per-project grants it needs.
 
 set -euo pipefail
@@ -69,11 +68,11 @@ for d in yaml.safe_load_all(sys.stdin):
 '
 }
 
-echo "==> defaults: the token is left to the ServiceAccount, as before"
+echo "==> defaults: the pod is given no token"
 facts=$(render | account_facts)
 expect_contains "the release's ServiceAccount is created" "serviceaccount ambari" "$facts"
 expect_contains "the pod runs as it" "pod-account ambari" "$facts"
-expect_contains "the pod does not turn the token off" "automount unset" "$facts"
+expect_contains "the pod does not mount the token" "automount false" "$facts"
 expect_absent "nothing bound to it" "ServiceAccount:kdps:ambari" "$facts"
 out=$(notes)
 expect_absent "notes do not offer the in-cluster connection" "In-cluster:" "$out"
@@ -94,9 +93,13 @@ expect_contains "notes give the monitoring-edit grant" \
     "oc -n <project> create rolebinding kdps-monitoring-edit --clusterrole=monitoring-edit" "$out"
 expect_contains "for this ServiceAccount" "--serviceaccount=kdps:ambari" "$out"
 
+echo "==> serviceAccount.automountToken mounts it without the in-cluster connection"
+facts=$(render --set serviceAccount.automountToken=true | account_facts)
+expect_contains "token mounted" "automount true" "$facts"
+
 echo "==> a ServiceAccount the platform team created"
 facts=$(render --set serviceAccount.create=false --set serviceAccount.name=kdps-operator | account_facts)
-expect_contains "without the value, its own automount setting applies" "automount unset" "$facts"
+expect_contains "the pod mounts no token, whatever the account says" "automount false" "$facts"
 facts=$(render --set inClusterServiceAccount.enabled=true --set serviceAccount.create=false \
     --set serviceAccount.name=kdps-operator | account_facts)
 expect_absent "none created" "serviceaccount " "$facts"

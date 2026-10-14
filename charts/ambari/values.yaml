@@ -256,6 +256,16 @@ serviceAccount:
   create: true
   name: ""
   annotations: {}
+  # Whether the pod is given the ServiceAccount's token. KDPS connects with an uploaded kubeconfig or an
+  # OpenShift login unless inClusterServiceAccount (below) turns on its own ServiceAccount, so the token
+  # is of no use to it otherwise, and whoever gets into the pod would have the grants of the account.
+  # inClusterServiceAccount.enabled mounts it whatever this says. Vault's Secrets Store CSI driver asks
+  # the API server for its own token and does not need the mounted one; check that on your driver
+  # before relying on it with vault.csi.*. Needs an ambari-kdps image that finds out it runs in a pod
+  # from the KUBERNETES_SERVICE_HOST and KUBERNETES_SERVICE_PORT variables, which are present without
+  # the token: an earlier one then queries the cluster's monitoring through the API server's service
+  # proxy, which an account limited to its own projects may not use. Set it to true with such an image.
+  automountToken: false
 
 # --- connecting KDPS with this pod's ServiceAccount -----------------------------------------
 # KDPS can reach the cluster API as the ServiceAccount the pod runs as (serviceAccount above) rather
@@ -266,8 +276,8 @@ serviceAccount:
 #
 # On, the pod is given the token even when the ServiceAccount opts out of mounting it (one the
 # platform team created with automountServiceAccountToken: false), and the release notes give the
-# grants it needs. Off, the chart leaves the token to the ServiceAccount, as it always has: Kubernetes
-# mounts it by default. The connection is in the KDPS view of the image this chart names (appVersion)
+# grants it needs. Off, the pod is given no token unless serviceAccount.automountToken
+# says so. The connection is in the KDPS view of the image this chart names (appVersion)
 # and later ones; an earlier image.tag may not offer it.
 #
 # The chart grants the ServiceAccount nothing either way. The platform team grants it, in each project

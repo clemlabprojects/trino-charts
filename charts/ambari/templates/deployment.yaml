@@ -27,12 +27,15 @@ spec:
         {{- with .Values.podAnnotations }}{{- toYaml . | nindent 8 }}{{- end }}
     spec:
       serviceAccountName: {{ include "ambari.serviceAccountName" . }}
-      {{- /* Left to the ServiceAccount (mounted by default) unless KDPS connects with the token: KDPS views built
-      before that connection take a pod without a token for one outside the cluster, and query the cluster's
-      monitoring through the API server's service proxy, which an account limited to its own projects may not use. */}}
+      {{- /* The token is mounted only when KDPS connects with it (inClusterServiceAccount) or serviceAccount.automountToken
+      asks for it: otherwise whoever gets into the pod would hold the grants of an account KDPS does not use. KDPS views
+      built before they looked at the KUBERNETES_SERVICE_* variables alone take a pod without a token for one outside the
+      cluster. */}}
       {{- if .Values.inClusterServiceAccount.enabled }}
       # KDPS connects with this token: asked for even when the ServiceAccount opts out of mounting it.
       automountServiceAccountToken: true
+      {{- else }}
+      automountServiceAccountToken: {{ .Values.serviceAccount.automountToken | default false }}
       {{- end }}
       # Longer than the server's own stop timeout (AMBARI_STOP_TIMEOUT below), so the server stops
       # cleanly instead of being killed with the pod.

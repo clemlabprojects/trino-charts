@@ -6,6 +6,11 @@ the chart and that you are running on OpenShift.
 
 For what the chart *is* and every value it takes, see [README.md](README.md).
 
+If Keycloak signs users in to Ambari, the Keycloak realm, client and the rights the client needs are
+prerequisites of the infrastructure, listed under "Keycloak prerequisites" in
+`ambari-server/docs/security/sso/oidc.md` of the Ambari sources. Have them ready before the first
+sign-in; the chart does not create them.
+
 ---
 
 ## 1. What you create before the first install
@@ -263,6 +268,24 @@ checkout of the chart instead, check `appVersion` in `Chart.yaml`, and set `imag
 
 ### Pointing the view at a cluster
 
+Which identity KDPS uses to reach the cluster is a decision to make before go-live. For production, use
+a ServiceAccount, because its token does not expire with a person's session and no password is kept:
+
+* **The pod's own ServiceAccount** (first below) when Ambari runs in the cluster it manages. It is the
+  only way that never expires when the OpenShift console signs in through SSO.
+* **A kubeconfig holding a ServiceAccount token, per project** ("A kubeconfig for a ServiceAccount"
+  below) when Ambari runs elsewhere, or should act as an account other than its pod's.
+
+An uploaded `oc login` kubeconfig expires within a day, and an OpenShift login keeps a person's
+password in KDPS: use them to try KDPS out. The pod's ServiceAccount is not used unless you chose it
+in KDPS; the chart gives the pod no token otherwise (`serviceAccount.automountToken`, off by default),
+and grants it nothing. Whatever KDPS connects as needs its grants in each project and nothing
+cluster-wide.
+
+If you deploy through GitOps, its prerequisites below are part of the go-live checklist too: Flux,
+the Git server and the Secret holding the Git credential, the Secret `valuesFrom` reads, and the base
+branch KDPS pushes to.
+
 * **The pod's own ServiceAccount** — with `inClusterServiceAccount.enabled=true`, KDPS →
   Configuration → Ambari's ServiceAccount → *Connect with this ServiceAccount*. Nothing to upload
   and no password to keep, so it is the way in when the OpenShift console only signs in through
@@ -413,7 +436,20 @@ project's usage against its ResourceQuota. What changes:
   * `oc policy add-role-to-user monitoring-edit <account> -n <project>`, so the release can create its
     ServiceMonitors. User workload monitoring must be enabled on the cluster.
   * The KEDA operator must watch the project. If it was installed with a `watchNamespace`
-    restriction, add the project to it.
+    restriction, add the project to it. **KDPS does not check this one**: only the monitoring-edit
+    grant stops the deploy. A project the operator does not watch deploys without an error, and the
+    ScaledObject is then never acted on, so the workers do not scale. Check it yourself, per cluster:
+
+    ```
+    # Custom Metrics Autoscaler on OpenShift: empty (all projects) or a list containing the project
+    oc get kedacontroller keda -n openshift-keda -o jsonpath='{.spec.watchNamespace}'
+    # KEDA installed with Helm or as an operator elsewhere: the operator's WATCH_NAMESPACE
+    oc -n <keda-namespace> get deployment keda-operator \
+      -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="WATCH_NAMESPACE")].value}'
+    ```
+
+    An empty answer means every project is watched. An account limited to its own projects usually
+    cannot read these objects: ask the platform team.
 * **Security context constraints (OpenMetadata, JupyterHub).** Some of their pods pin a UID or run as
   root, which the default `restricted-v2` SCC refuses: OpenMetadata needs `anyuid` for its bundled
   OpenSearch and Airflow, JupyterHub needs `nonroot-v2` and `anyuid`. KDPS first checks whether the
@@ -468,8 +504,39 @@ project's usage against its ResourceQuota. What changes:
 
   A deploy that selects a truststore KDPS cannot read stops and names it, instead of deploying a
   release that then fails its TLS handshakes.
-* **GitOps (Flux).** Works the same way; the chart source written for Flux is the chart repository
-  configured in KDPS.
+* **GitOps (Flux).** Has prerequisites of its own, which the platform team provides before the first
+  GitOps deploy. KDPS commits manifests to Git and Flux applies them; KDPS installs nothing with
+  Helm itself in this mode.
+  * **Flux 2.3 or later.** KDPS writes `HelmRelease` as `helm.toolkit.fluxcd.io/v2` and
+    `HelmRepository` as `source.toolkit.fluxcd.io/v1`. It reads them back at the version the cluster
+    serves (an older Flux serving `v2beta2` and `v1beta2` is read too, but the Git manifests are
+    `v2` and `v1` and need 2.3).
+  * **A Git server and a repository Flux reconciles**, with the base branch KDPS pushes to or opens
+    pull requests against, and a `GitRepository` and `Kustomization` that apply the path KDPS writes
+    (the path prefix set in KDPS). The deploy stops before anything is committed when the branch is
+    not on the server. Opening pull requests needs an access token of the Git server.
+  * **The Git credential**: an access token or SSH key saved in KDPS, with write access to the
+    repository.
+  * **The values Secret.** The values of a release that are passwords or secrets never go to Git:
+    KDPS writes them to a Secret in the release's project, which the `HelmRelease` reads through
+    `spec.valuesFrom`. The account KDPS connects as needs to create Secrets there, and the
+    `Kustomization` must not prune it.
+  * **Where the chart source lives.** By default each release gets a `HelmRepository` of its own in
+    its own project, which works with a Flux that refuses references across namespaces
+    (`--no-cross-namespace-refs`) and for tenants limited to their projects. If the platform keeps
+    its chart sources in one namespace such as `flux-system`, set the view property
+    `k8s.view.gitops.source.namespace` to it: every release then reads its chart from one
+    `HelmRepository` per chart repository there, which needs cross-namespace references and a
+    `Kustomization` allowed to write that namespace.
+  * **Chart repositories that need a login** work: KDPS writes the Secret Flux pulls the charts with
+    next to the source (or uses the existing Secret named under Configuration > Helm repositories,
+    "GitOps credentials Secret"), and the CA Secret for a repository served with a certificate from
+    your own CA. The deploy stops and says what is missing (a user name, a password, an unreadable
+    truststore) before it commits.
+
+  The Flux settings themselves (the version, `--no-cross-namespace-refs`, what the `Kustomization`
+  may write) are not checked by KDPS: when one is wrong, the release shows as not found or stalled
+  after the commit, and the status of the `HelmRelease` and `HelmRepository` in the cluster says why.
 
 ---
 
@@ -942,14 +1009,32 @@ ones, and the two no longer trust each other: Superset cannot connect to Trino, 
 
 ---
 
-## 8. Notes on the security posture
+## 8. Removing a service by hand
+
+Uninstalling a release from KDPS removes the release; it does not yet clean up everything KDPS
+created around it. Until it does, a platform team that decommissions a service checks these by hand,
+in this order:
+
+1. **Leftover Secrets** in the project: those of the release that Helm does not own (generated
+   credentials, certificate and keytab Secrets, the Thanos token Secret of the autoscaler), and the
+   truststore Secrets in the PKI project when nothing else uses them.
+   `oc -n <project> get secret` and look for the release's name and the label
+   `app.kubernetes.io/managed-by=ambari-kdps`.
+2. **The Keycloak client** KDPS registered for the service, in the realm of the sign-in. Delete it in
+   Keycloak, or the client and its secret stay valid.
+3. **The Ranger tag-writer user** KDPS created for the service, and its policies, in Ranger.
+4. **The KDC principals and keytabs** made for the service (Kerberos), in the KDC.
+5. **SCC grants** the platform team made for the release's service accounts: the uninstall prints the
+   `oc adm policy remove-scc-from-user` commands to run.
+
+## 9. Notes on the security posture
 
 * The server runs as an arbitrary non-root UID under `restricted-v2`. No added SCC, no privileged
   container, no `runAsUser`.
-* The chart grants its ServiceAccount nothing. Its token is in the pod, as in any pod whose
-  ServiceAccount does not opt out of it, so whoever controls the pod acts with the grants given to
-  that ServiceAccount: when KDPS connects with it, give them project by project (§2), never
-  cluster-wide.
+* The chart grants its ServiceAccount nothing, and gives the pod no token for it unless KDPS
+  connects with it (`inClusterServiceAccount.enabled`) or `serviceAccount.automountToken` is set.
+  When the token is in the pod, whoever controls the pod acts with the grants given to that
+  ServiceAccount: give them project by project (§2), never cluster-wide.
 * There are no Ambari agents, so `agent.enabled` is off. That removes the agent SSL listeners and
   the certificate authority Ambari would otherwise generate for them. Turn it on only if this
   server also manages Ambari agents — it brings the keystore requirements back with it.
