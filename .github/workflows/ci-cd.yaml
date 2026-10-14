@@ -203,6 +203,7 @@ jobs:
           ./tests/ambari/test-schema-upgrade.sh
           ./tests/ambari/test-persistence.sh
           ./tests/ambari/test-in-cluster-service-account.sh
+          ./tests/ambari/test-network-and-tls.sh
       - name: Check the release gate
         run: ./tests/ambari/test-release-gate.sh
 

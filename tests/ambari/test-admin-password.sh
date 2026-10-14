@@ -166,7 +166,7 @@ echo "==> the notes name the Secret instead of admin/admin"
 text=$(notes --set adminPassword.existingSecret=ambari-admin)
 expect_contains "the Secret" "Admin    : password from Secret ambari-admin (key password)" "$text"
 expect_absent "no admin/admin advice" "admin/admin by default" "$text"
-expect_absent "no warning" "WARNING" "$text"
+expect_absent "no admin/admin warning" "WARNING -- admin/admin" "$text"
 
 if [ "$FAILED" -ne 0 ]; then
     echo "ambari administrator password checks FAILED"

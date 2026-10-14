@@ -28,5 +28,6 @@ spec:
               service:
                 name: {{ include "ambari.fullname" . }}
                 port:
-                  name: http
+                  {{- /* The port the server listens on: with api.tls there is no plain HTTP left. */}}
+                  name: {{ include "ambari.serverPortName" . }}
 {{- end }}

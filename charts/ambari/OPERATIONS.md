@@ -174,20 +174,24 @@ api:
   tls:
     enabled: true
 route:
-  host: ambari.apps.example.com
-  tls:
-    mode: passthrough
+  host: ambari.apps.example.com      # route.tls.mode left empty: passthrough
 vault:
   csi:
     apiCert:
       enabled: true
       path: secret/data/kdps/ambari/api-cert
+networkPolicy:
+  enabled: true                      # only the router may connect (README, "Who can connect to the server")
 ```
 
 The certificate must name the **route host**, because with passthrough that is the name the browser
-verifies. Use `reencrypt` instead if you want the router to terminate and re-encrypt; then the
-router verifies Ambari's certificate, so a private CA has to go in
-`route.tls.destinationCACertificate`.
+verifies. To have the router terminate and re-encrypt instead, give it the CA that signed Ambari's
+certificate in `route.tls.destinationCACertificate`: with `route.tls.mode` left empty the Route then
+re-encrypts.
+
+With `api.tls` off, the router decrypts and forwards plain HTTP to the pod: sign-ins, the
+administrator's password and every secret uploaded to KDPS cross the cluster network in clear. That
+is acceptable for a trial on a cluster you alone use, not for production.
 
 The chart refuses to render if the Route and the server disagree — an `edge` route in front of an
 HTTPS-only server gives a 503 with no explanation, so it is rejected at template time instead.
@@ -707,6 +711,15 @@ starts, so do these before you sync:
   The archive holds the CA's private key: keep it no longer than this takes. If the CA is already
   lost, see §7.
 
+### From chart 0.1.12 or earlier
+
+`route.tls.mode` now defaults to empty, which follows `api.tls.enabled`: a release without `api.tls`
+keeps its `edge` Route, and one that sets the mode explicitly keeps it. With `api.tls` on, the mode no
+longer has to be given. The Ingress now sends the traffic to the HTTPS port when `api.tls` is on
+(earlier charts sent it to the plain HTTP port, on which such a server does not listen): give the
+controller its backend-protocol annotation (README, "TLS on the server itself"). `networkPolicy` is
+new and off; turn it on once you know the labels of your router's namespaces.
+
 ---
 
 ## 5. Stopping the pod, and the audit trail
@@ -1049,6 +1062,12 @@ in this order:
   `adminPassword` Secret before the pod is Ready, and the chart does not render without one unless
   `adminPassword.allowDefault` says otherwise. For the few seconds between the server starting and
   the password changing, the server is reachable only on the pod's own address, from inside the
-  cluster; a NetworkPolicy that admits only the router closes that too.
+  cluster; `networkPolicy.enabled`, which admits only the router, closes that too.
+* Without `networkPolicy.enabled` any pod in the cluster can connect to the server; with it, only the
+  router's (or ingress controller's) namespaces and the listed address ranges, and only to the
+  server's port. Outgoing traffic is not restricted.
+* With `api.tls.enabled` and `route.tls.mode` left empty, the traffic is encrypted all the way to the
+  pod (`passthrough`, or `reencrypt` with `destinationCACertificate`). Without it the last hop, from
+  the router to the pod, is plain HTTP, and the release notes say so.
 * The password reaches the server's API on the pod's loopback and is kept off the command lines and
   out of the logs; the server process itself is not given it.

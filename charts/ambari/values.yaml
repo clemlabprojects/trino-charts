@@ -122,7 +122,11 @@ agent:
 # The server terminating TLS itself, rather than serving plain HTTP behind a router that does it.
 # The certificate comes from a kubernetes.io/tls Secret -- your own, or one Vault syncs -- and an
 # init container turns it into the PKCS12 keystore Ambari expects. With this on, the server listens
-# on 8443 only, and route.tls.mode should be reencrypt (or passthrough).
+# on 8443 only, and the Route passes TLS through or re-encrypts it (route.tls.mode).
+#
+# Off, the router (or the ingress controller) decrypts and the last hop, to the pod, is plain HTTP:
+# sign-ins, the administrator's password and every secret uploaded to KDPS cross the cluster network
+# in clear. Production installs turn this on, and networkPolicy too.
 api:
   tls:
     enabled: false
@@ -175,10 +179,14 @@ route:
   host: ""                          # required when enabled; also names the TLS Secret by default
   annotations: {}
   tls:
-    # edge          — router terminates TLS with its own default certificate
-    # edgeWithCert  — router terminates TLS with OUR certificate, read from a Secret
-    # passthrough / reencrypt — only meaningful once Ambari serves HTTPS itself
-    mode: edge
+    # edge          — router terminates TLS with its own default certificate; plain HTTP to the pod
+    # edgeWithCert  — router terminates TLS with OUR certificate, read from a Secret; plain HTTP to the pod
+    # passthrough   — the router does not decrypt; the browser sees Ambari's own certificate (api.tls)
+    # reencrypt     — the router decrypts and re-encrypts to Ambari (api.tls), verifying its
+    #                 certificate against destinationCACertificate
+    # Empty follows api.tls.enabled: edge without it; with it, reencrypt when destinationCACertificate
+    # is set and passthrough otherwise, so that the traffic is encrypted all the way to the pod.
+    mode: ""
     insecureEdgeTerminationPolicy: Redirect
     # The Secret carrying tls.crt / tls.key. Empty means "<route host>-tls", so the certificate is
     # named after the route it serves. Referenced through the Route's externalCertificate field
@@ -191,6 +199,9 @@ route:
     # and use passthrough when the certificate is self-signed or privately issued.
     destinationCACertificate: ""
 
+# Ingress, for vanilla Kubernetes. It sends the traffic to the port the server listens on: with
+# api.tls on, the controller has to speak HTTPS to it, which is controller-specific (ingress-nginx:
+# nginx.ingress.kubernetes.io/backend-protocol: HTTPS in annotations).
 ingress:
   enabled: false
   className: ""
@@ -201,6 +212,34 @@ ingress:
   tls:
     enabled: true
     secretName: ""                  # defaults to "<ingress host>-tls"
+
+# --- who may connect to the server ------------------------------------------------------------
+# A NetworkPolicy that admits connections to the server's port only from the router's or ingress
+# controller's namespaces and the listed address ranges. Without it any pod in the cluster can reach
+# the console, which accepts the administrator's password and the secrets uploaded to KDPS. Nothing
+# else needs to: the KDPS view runs inside this server, and the kubelet's probes are not filtered by
+# NetworkPolicy. Outgoing traffic is left alone (the cluster API, the database, Vault, Git, the Helm
+# repositories). Needs a network plugin that enforces NetworkPolicy, as OpenShift's do.
+networkPolicy:
+  enabled: false
+  # Namespaces whose pods may connect, one label set each (a namespace matches when it carries all
+  # of them). The defaults are the labels OpenShift puts on the namespaces of its ingress routers,
+  # with OVN-Kubernetes and with OpenShift SDN. Routers on the host network (endpoint publishing
+  # strategy HostNetwork: bare metal, CRC) connect from the node instead; with OVN-Kubernetes add
+  #   - policy-group.network.openshift.io/host-network: ""
+  # On Kubernetes, name the ingress controller's namespace instead, e.g.
+  #   - kubernetes.io/metadata.name: ingress-nginx
+  # An empty label set would admit every namespace, so the chart refuses one.
+  ingressNamespaceSelectors:
+    - policy-group.network.openshift.io/ingress: ""
+    - network.openshift.io/policy-group: ingress
+  # Address ranges that may connect directly, e.g. a load balancer's source range or a bastion.
+  allowedCIDRs: []
+  # Any other NetworkPolicyPeer, as it is, e.g. a monitoring namespace:
+  #   - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: monitoring}}
+  extraFrom: []
+  # With no selector, range or peer at all, the policy admits nobody, and the console is reachable
+  # through port-forward only.
 
 # --- Vault ----------------------------------------------------------------------------------
 # The master key, the first administrator password, the database password and the certificates,

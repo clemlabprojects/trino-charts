@@ -86,6 +86,29 @@ password
 {{- end -}}
 {{- end -}}
 
+{{/*
+How the Route terminates TLS. Left empty, it follows the server: with Ambari serving HTTPS the router
+must not be the one to decrypt it, so the Route re-encrypts when it has been given the CA to verify
+Ambari's certificate with, and passes the connection through otherwise (that works with any
+certificate, self-signed or privately issued). Without api.tls it stays edge, as it always was.
+A misspelt mode is refused rather than handed to the router, which would reject the Route.
+*/}}
+{{- define "ambari.route.tlsMode" -}}
+{{- $mode := .Values.route.tls.mode | default "" -}}
+{{- if not (has $mode (list "" "edge" "edgeWithCert" "passthrough" "reencrypt")) -}}
+{{- fail (printf "route.tls.mode must be edge, edgeWithCert, passthrough or reencrypt (or empty, to follow api.tls.enabled), not %q" $mode) -}}
+{{- end -}}
+{{- if $mode -}}
+{{- $mode -}}
+{{- else if not .Values.api.tls.enabled -}}
+edge
+{{- else if .Values.route.tls.destinationCACertificate -}}
+reencrypt
+{{- else -}}
+passthrough
+{{- end -}}
+{{- end -}}
+
 {{- define "ambari.ingress.tlsSecretName" -}}
 {{- if .Values.ingress.tls.secretName -}}
 {{- .Values.ingress.tls.secretName -}}
@@ -254,4 +277,29 @@ entrypoint applies these after `ambari-server setup`, which rewrites that file.
 {{- $lines = append $lines (printf "server.jdbc.properties.%s=%v" $k $v) -}}
 {{- end -}}
 {{- join "\n" $lines -}}
+{{- end -}}
+
+{{/*
+Who may open a connection to the server when networkPolicy.enabled is set, as NetworkPolicyPeer
+entries: the namespaces of the router or ingress controller, the configured address ranges, and any
+peer given verbatim. Empty when none is configured, and the policy then admits nobody, never everybody:
+a rule whose `from` list is empty would let every pod in the cluster in.
+*/}}
+{{- define "ambari.networkPolicy.peers" -}}
+{{- $peers := list -}}
+{{- range .Values.networkPolicy.ingressNamespaceSelectors -}}
+{{- if not . -}}
+{{- fail "networkPolicy.ingressNamespaceSelectors: an empty selector matches every namespace, which is what the policy is there to prevent; name the labels of the router's or ingress controller's namespace" -}}
+{{- end -}}
+{{- $peers = append $peers (dict "namespaceSelector" (dict "matchLabels" .)) -}}
+{{- end -}}
+{{- range .Values.networkPolicy.allowedCIDRs -}}
+{{- $peers = append $peers (dict "ipBlock" (dict "cidr" .)) -}}
+{{- end -}}
+{{- range .Values.networkPolicy.extraFrom -}}
+{{- $peers = append $peers . -}}
+{{- end -}}
+{{- if $peers -}}
+{{- toYaml $peers -}}
+{{- end -}}
 {{- end -}}

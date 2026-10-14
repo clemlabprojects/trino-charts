@@ -100,6 +100,10 @@ jobs:
             --set vault.csi.apiCert.path=secret/data/kdps/ambari/api-cert \
             --set api.tls.enabled=true \
             --set route.host=ambari.apps.example.com --set route.tls.mode=passthrough >/dev/null
+          echo "--- OpenShift: TLS to the pod, Route mode picked from api.tls, router-only NetworkPolicy ---"
+          helm template ambari "${CHART_DIR}" ${COMMON} \
+            --set api.tls.enabled=true --set api.tls.existingSecret=ambari-api-tls \
+            --set route.host=ambari.apps.example.com --set networkPolicy.enabled=true >/dev/null
           echo "--- vanilla Kubernetes: Ingress instead of a Route ---"
           helm template ambari "${CHART_DIR}" \
             --set database.host=postgres.example.svc --set database.password=changeme \
@@ -135,6 +139,7 @@ jobs:
           ./tests/ambari/test-schema-upgrade.sh
           ./tests/ambari/test-persistence.sh
           ./tests/ambari/test-in-cluster-service-account.sh
+          ./tests/ambari/test-network-and-tls.sh
 
       - name: Package chart
         run: |

@@ -150,8 +150,10 @@ first start. Turn it on only if this server also manages Ambari agents.
 `api.tls.enabled` makes Ambari terminate TLS on 8443. The certificate comes from a
 `kubernetes.io/tls` Secret, or straight out of Vault, and an init container converts it into the
 PKCS12 keystore Ambari expects — the keystore password is generated per pod and never leaves the
-pod. With this on there is no plain HTTP listener left, so `route.tls.mode` has to be `passthrough`
-or `reencrypt`; the chart rejects the other combinations at template time.
+pod. With this on there is no plain HTTP listener left, so the Route passes TLS through or
+re-encrypts it: leave `route.tls.mode` empty and the chart picks `reencrypt` when
+`route.tls.destinationCACertificate` is set, `passthrough` otherwise. An `edge` or `edgeWithCert`
+Route in front of it is rejected at template time.
 
 ```yaml
 api:
@@ -159,9 +161,20 @@ api:
     enabled: true
     existingSecret: ambari-api-tls
 route:
-  host: ambari.apps.example.com
-  tls:
-    mode: passthrough
+  host: ambari.apps.example.com      # the Route passes TLS through to Ambari
+```
+
+Without it the router — or the ingress controller — decrypts, and the last hop to the pod is plain
+HTTP: sign-ins, the administrator's password and every secret uploaded to KDPS cross the cluster
+network in clear, and the release notes say so. Turn it on for a production install.
+
+On vanilla Kubernetes the Ingress sends the traffic to the HTTPS port once this is on, and the
+controller has to be told to speak HTTPS to it, which is controller-specific. With ingress-nginx:
+
+```yaml
+ingress:
+  annotations:
+    nginx.ingress.kubernetes.io/backend-protocol: HTTPS
 ```
 
 ## TLS on the Route
@@ -170,9 +183,11 @@ route:
 
 | Mode | What happens |
 | --- | --- |
-| `edge` | the router terminates TLS with the cluster's default certificate |
-| `edgeWithCert` | the router terminates TLS with **your** certificate, read from a Secret |
-| `passthrough`, `reencrypt` | only meaningful once Ambari itself serves HTTPS |
+| *(empty, the default)* | follows `api.tls.enabled`: `edge` without it; with it `reencrypt` when `destinationCACertificate` is set, `passthrough` otherwise |
+| `edge` | the router terminates TLS with the cluster's default certificate; plain HTTP to the pod |
+| `edgeWithCert` | the router terminates TLS with **your** certificate, read from a Secret; plain HTTP to the pod |
+| `passthrough` | the router does not decrypt; the browser sees Ambari's own certificate (needs `api.tls`) |
+| `reencrypt` | the router decrypts and re-encrypts to Ambari, verifying its certificate against `destinationCACertificate` (needs `api.tls`) |
 
 With `edgeWithCert` the certificate stays in its Secret and is referenced through the Route's
 `externalCertificate` field rather than inlined, so the rendered manifest carries no private key and
@@ -180,6 +195,32 @@ Argo CD neither stores nor diffs it. The Secret is named after the route it serv
 `<route.host>-tls` — unless you set `route.tls.secretName`. The chart also grants the ingress router
 read access to that one Secret; set `route.tls.grantRouterAccess=false` if your cluster
 administrator has already arranged it.
+
+## Who can connect to the server
+
+Without a NetworkPolicy, any pod in the cluster can open a connection to the console. Nothing but the
+router — or the ingress controller — needs to: the KDPS view runs inside the server, and the
+kubelet's probes are not filtered by NetworkPolicy. `networkPolicy.enabled` admits connections to
+the server's port only from the router's namespaces and the address ranges you list:
+
+```yaml
+networkPolicy:
+  enabled: true
+  # the defaults are the labels of OpenShift's router namespaces; on Kubernetes name your controller's:
+  # ingressNamespaceSelectors:
+  #   - kubernetes.io/metadata.name: ingress-nginx
+  allowedCIDRs: []          # e.g. a load balancer's source range, a bastion
+  extraFrom: []             # any other NetworkPolicyPeer, as it is
+```
+
+On OpenShift the defaults admit the routers of both network plugins. Routers on the host network
+(bare metal, CRC) connect from the node instead: with OVN-Kubernetes add
+`policy-group.network.openshift.io/host-network: ""` to `ingressNamespaceSelectors`. With no selector,
+range or peer at all the policy admits nobody and the console is reachable through `port-forward`
+only; an empty label set, which would admit every namespace, is refused. Outgoing traffic is not
+restricted: the cluster API, the database, Vault, Git and the Helm repositories differ from one
+installation to the next. The policy is off by default, so that an install on a cluster whose router
+namespaces carry other labels keeps working; the release notes warn while it is off.
 
 ## Vault
 
