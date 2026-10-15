@@ -1071,8 +1071,12 @@ postgresql:
         postgresql: "5432"
     ## The PostgreSQL chart's NetworkPolicy. With allowExternal false, only the pods of this release reach the
     ## database: the rule below admits them (they all carry the label release=<release name>).
+    ## Outgoing traffic is limited to DNS (and the read replicas, when there are any): the database calls nothing
+    ## else, and clusters that forbid NetworkPolicies allowing egress to any endpoint (an admission policy such as
+    ## Gatekeeper) refuse the chart's default otherwise.
     networkPolicy:
       allowExternal: true
+      allowExternalEgress: false
       extraIngress:
         - ports:
             - port: 5432
@@ -1134,8 +1138,17 @@ redis:
     password: superset
   ## The Redis chart's NetworkPolicy. With allowExternal false, only the pods of this release reach Redis: the rule
   ## below admits them (they all carry the label release=<release name>).
+  ## Outgoing traffic is limited to DNS: Redis calls nothing else, and clusters that forbid NetworkPolicies allowing
+  ## egress to any endpoint (an admission policy such as Gatekeeper) refuse the chart's default otherwise.
   networkPolicy:
     allowExternal: true
+    allowExternalEgress: false
+    extraEgress:
+      - ports:
+          - port: 53
+            protocol: UDP
+          - port: 53
+            protocol: TCP
     extraIngress:
       - ports:
           - port: 6379
