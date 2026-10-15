@@ -93,7 +93,7 @@ data:
     {{- if .Values.server.config.authenticationType }}
     http-server.authentication.type={{ .Values.server.config.authenticationType }}{{ if and $kdpsEnabled (not (contains "PASSWORD" .Values.server.config.authenticationType)) }},PASSWORD{{ end }}
     {{- else if $ldapModeEnabled }}
-    web-ui.authentication.type=PASSWORD
+    web-ui.authentication.type=FORM
     http-server.authentication.type=PASSWORD
     {{- else if eq $authMode "oidc" }}
     web-ui.authentication.type=OAUTH2
