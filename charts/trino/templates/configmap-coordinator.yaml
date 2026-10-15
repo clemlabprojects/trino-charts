@@ -255,7 +255,8 @@ data:
   {{- end }}
   {{- $bindPattern := "" }}
   {{- if $ldapCfg.userDnTemplate }}
-  {{- $bindPattern = $ldapCfg.userDnTemplate }}
+  {{- /* The security profile writes the user name as {0} (the form Superset reads); Trino only replaces ${USER}. */}}
+  {{- $bindPattern = replace "{0}" "${USER}" $ldapCfg.userDnTemplate }}
   {{- else if and (eq $authMode "ad") $adCfg.domain }}
   {{- $bindPattern = printf "${USER}@%s" $adCfg.domain }}
   {{- end }}
@@ -271,6 +272,25 @@ data:
   {{- if eq $authMode "ad" }}
   {{- $userFilter = default $adCfg.userSearchFilter $userFilter }}
   {{- end }}
+  {{- $userBaseDn := default $ldapCfg.groupSearchBase $baseDn }}
+  {{- /* With a bind DN, Trino finds the user with ldap.group-auth-pattern, and refuses to start without it. Superset and
+         OpenMetadata build that search themselves, so when the profile leaves the pattern empty it is built the way
+         Superset builds it: the login attribute (sAMAccountName on AD, uid on LDAP), with the profile's user search
+         filter as an extra condition. A filter that already names the user ({0}) is the whole search. */}}
+  {{- $groupPattern := replace "{0}" "${USER}" (default "" $ldapCfg.groupAuthPattern) }}
+  {{- if and $bindDn (not $groupPattern) }}
+  {{- $loginMatch := ternary "(&(objectClass=user)(sAMAccountName=${USER}))" "(&(objectClass=person)(uid=${USER}))" (eq $authMode "ad") }}
+  {{- if and $userFilter (contains "{0}" $userFilter) }}
+  {{- $groupPattern = replace "{0}" "${USER}" $userFilter }}
+  {{- else if $userFilter }}
+  {{- $groupPattern = printf "(&%s%s)" $loginMatch $userFilter }}
+  {{- else }}
+  {{- $groupPattern = $loginMatch }}
+  {{- end }}
+  {{- end }}
+  {{- if and $groupPattern (not $userBaseDn) }}
+  {{- fail "Trino LDAP login needs the Base DN of the security profile: Trino searches for users under it" }}
+  {{- end }}
   password-authenticator.properties: |
     password-authenticator.name=ldap
     {{- if $ldapUrl }}
@@ -279,16 +299,11 @@ data:
     {{- if $bindPattern }}
     ldap.user-bind-pattern={{ $bindPattern }}
     {{- end }}
-    {{- if $baseDn }}
-    ldap.user-base-dn={{ $baseDn }}
-    {{- else if $ldapCfg.groupSearchBase }}
-    ldap.user-base-dn={{ $ldapCfg.groupSearchBase }}
+    {{- if $userBaseDn }}
+    ldap.user-base-dn={{ $userBaseDn }}
     {{- end }}
-    {{- if $userFilter }}
-    ldap.user-search-filter={{ $userFilter }}
-    {{- end }}
-    {{- if $ldapCfg.groupAuthPattern }}
-    ldap.group-auth-pattern={{ $ldapCfg.groupAuthPattern }}
+    {{- if $groupPattern }}
+    ldap.group-auth-pattern={{ $groupPattern }}
     {{- end }}
     {{- if $bindDn }}
     ldap.bind-dn={{ $bindDn }}
@@ -296,7 +311,7 @@ data:
     {{- if include "trino.auth.hasBindPassword" $ }}
     ldap.bind-password=${ENV:TRINO_LDAP_PASSWORD}
     {{- end }}
-    {{- if not (or (hasPrefix $ldapUrl "ldaps://") $ldapCfg.startTls) }}
+    {{- if not (or (hasPrefix "ldaps://" $ldapUrl) $ldapCfg.startTls) }}
     ldap.allow-insecure=true
     {{- end }}
     {{- if eq (lower (default "" $ldapCfg.referral)) "ignore" }}
