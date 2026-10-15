@@ -38,6 +38,9 @@ jobs:
       gateway-changed: ${{ steps.filter.outputs.gateway }}
       ollama-changed: ${{ steps.filter.outputs.ollama }}
       gitlab-changed: ${{ steps.filter.outputs.gitlab }}
+      openmetadata-changed: ${{ steps.filter.outputs.openmetadata }}
+      ambari-changed: ${{ steps.filter.outputs.ambari }}
+      superset-changed: ${{ steps.filter.outputs.superset }}
     steps:
       - uses: actions/checkout@v5
       - name: Get changed related files
@@ -65,6 +68,21 @@ jobs:
               - 'charts/gitlab/**'
               - '.helmignore'
               - '.github/**'
+            openmetadata:
+              - 'charts/openmetadata/**'
+              - 'tests/openmetadata/**'
+              - '.helmignore'
+              - '.github/**'
+            ambari:
+              - 'charts/ambari/**'
+              - 'tests/ambari/**'
+              - '.helmignore'
+              - '.github/**'
+            superset:
+              - 'charts/superset/**'
+              - 'tests/superset/**'
+              - '.helmignore'
+              - '.github/**'
 
   test:
     runs-on: ubuntu-latest
@@ -88,6 +106,10 @@ jobs:
         uses: azure/setup-helm@v4
         with:
           version: v3.19.0
+      - name: Run template checks
+        run: |
+          ./tests/trino/test-jvm-heap.sh
+          ./tests/trino/test-secrets.sh
       - name: Set up chart-testing
         uses: helm/chart-testing-action@v2.7.0
       - name: Create kind cluster
@@ -141,6 +163,66 @@ jobs:
       - name: Run ollama tests
         run: ./tests/ollama/test.sh ${{ matrix.args }}
 
+  test-openmetadata:
+    runs-on: ubuntu-latest
+    name: test openmetadata templates
+    needs: [changes]
+    if: ${{needs.changes.outputs.openmetadata-changed == 'true'}}
+    steps:
+      - uses: actions/checkout@v5
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.19.0
+      - name: Run template checks
+        run: |
+          ./tests/openmetadata/test-servicemonitor.sh
+          ./tests/openmetadata/test-credentials.sh
+
+  test-ambari:
+    runs-on: ubuntu-latest
+    name: test ambari templates
+    needs: [changes]
+    if: ${{needs.changes.outputs.ambari-changed == 'true'}}
+    steps:
+      - uses: actions/checkout@v5
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.19.0
+      # The checks parse the rendered manifests and the logback.xml they carry.
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.x'
+      - name: Install PyYAML
+        run: pip install pyyaml
+      - name: Run template checks
+        run: |
+          ./tests/ambari/test-shutdown-and-logs.sh
+          ./tests/ambari/test-admin-password.sh
+          ./tests/ambari/test-schema-upgrade.sh
+          ./tests/ambari/test-persistence.sh
+          ./tests/ambari/test-in-cluster-service-account.sh
+          ./tests/ambari/test-network-and-tls.sh
+      - name: Check the release gate
+        run: ./tests/ambari/test-release-gate.sh
+
+  test-superset:
+    runs-on: ubuntu-latest
+    name: test superset templates
+    needs: [changes]
+    if: ${{needs.changes.outputs.superset-changed == 'true'}}
+    steps:
+      - uses: actions/checkout@v5
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.19.0
+      - name: Run template checks
+        run: |
+          ./tests/superset/test-secrets.sh
+          ./tests/superset/test-admin-and-datastores.sh
+
   docs:
     runs-on: ubuntu-latest
     steps:
@@ -152,7 +234,7 @@ jobs:
 
   # Everything above is CI, everything here and below is for releases and runs only on non-pull-request events
   sync-readme:
-    needs: [lint, test, test-gateway, test-ollama, docs]
+    needs: [lint, test, test-gateway, test-ollama, test-openmetadata, test-ambari, test-superset, docs]
     runs-on: ubuntu-latest
     if: ${{ always() && !failure() && github.event_name != 'pull_request'}}
     steps:
@@ -181,7 +263,7 @@ jobs:
           git push
 
   release:
-    needs: [lint, test, test-gateway, test-ollama, docs, sync-readme]
+    needs: [lint, test, test-gateway, test-ollama, test-openmetadata, test-ambari, test-superset, docs, sync-readme]
     runs-on: ubuntu-latest
     if: ${{ always() && !failure() && github.event_name != 'pull_request'}}
     steps:
@@ -192,6 +274,16 @@ jobs:
         run: |
           git config user.name "$GITHUB_ACTOR"
           git config user.email "$GITHUB_ACTOR@users.noreply.github.com"
+      # chart-releaser releases every chart changed since the last release. The ambari chart waits
+      # until appVersion names an image whose entrypoint does what the chart relies on -- with an
+      # earlier one its pod never becomes Ready (see the script) -- as it does for the Clemlab OCI
+      # repository. chart-releaser skips a chart whose directory is gone, so only this one is held back.
+      - name: Hold back the ambari chart until it names an image it can run on
+        run: |
+          if ! out=$(.github/scripts/ambari-image-supported.sh charts/ambari); then
+            echo "::warning::The ambari chart is not released: ${out}"
+            rm -rf charts/ambari
+          fi
       - name: Release charts
         uses: helm/chart-releaser-action@v1.7.0
         env:
@@ -201,7 +293,7 @@ jobs:
           CR_SKIP_EXISTING: true
 
   release-harbor:
-    needs: [lint, test, test-gateway, test-ollama, docs, sync-readme]
+    needs: [lint, test, test-gateway, test-ollama, test-openmetadata, test-ambari, test-superset, docs, sync-readme]
     runs-on: ubuntu-latest
     if: ${{ always() && !failure() && github.event_name != 'pull_request'}}
     steps:

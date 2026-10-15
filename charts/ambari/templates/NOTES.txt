@@ -5,14 +5,82 @@ Ambari {{ .Chart.AppVersion }} (standalone, hosting the KDPS view) is installing
   Master key from Secret {{ include "ambari.masterKey.secretName" . }} (key {{ include "ambari.masterKey.secretKey" . }})
              Back it up. Everything encrypted with it -- the credential store, and the kubeconfig
              the KDPS view stores -- becomes unreadable if it is lost or changed.
+{{- if not (or .Values.serviceAccount.automountToken .Values.inClusterServiceAccount.enabled) }}
+  Token    : the pod is given no ServiceAccount token. An ambari-kdps image of 2.8.2.0-160 or earlier
+             (a pinned image.tag) then queries the cluster's monitoring through the API server's
+             proxy: set serviceAccount.automountToken=true with such an image.
+{{- end }}
+{{- if include "ambari.persistence.onClaim" . }}
+  Data     : claim {{ .Values.persistence.existingClaim | default (include "ambari.fullname" .) }}: the KDPS internal CA, the credential store with the Git
+             credentials of GitOps releases, operation records and the uploaded kubeconfig. Back it
+             up with the database and the master key, and restore it before the first deploy.
+{{- else }}
+  Data     : WARNING -- no claim (persistence.acknowledgeEphemeral=true). Every new pod signs
+             certificates with a new KDPS internal CA, so the services deployed before and after it
+             no longer trust each other, and forgets the Git credentials of GitOps releases.
+             Throwaway installs only.
+{{- end }}
+{{- $adminSecret := include "ambari.adminPassword.secretName" . }}
+{{- if $adminSecret }}
+  Admin    : password from Secret {{ $adminSecret }} (key {{ include "ambari.adminPassword.secretKey" . }}). It replaces
+             admin/admin on the first start, before the pod is Ready; after that, editing the
+             Secret changes nothing -- change the password in Ambari.
+{{- else }}
+  Admin    : WARNING -- admin/admin (adminPassword.allowDefault=true). Anyone who reaches this
+             server can sign in as the Ambari Administrator until the password is changed.
+             Development only.
+{{- end }}
+{{- if .Values.schemaUpgrade.enabled }}
+  Schema   : upgraded before the server starts when the database is from an earlier Ambari line
+             (schemaUpgrade.enabled). Back the database up before this sync, and set it back to
+             false once the pod is Ready.
+{{- end }}
   Agents   : {{ if .Values.agent.enabled }}enabled{{ else }}none, so no agent listeners and no generated CA{{ end }}
+  Audit log: in the pod logs, every line prefixed "[ambari-audit] ". Collect them with the cluster's
+             log stack: the log files are {{ if not .Values.logs.persistence.enabled }}in the container and go with it{{ else if include "ambari.logs.onClaim" . }}on a claim, but are only a working copy{{ else }}on an emptyDir and go with the pod{{ end }}.
+{{- $routeMode := "" }}
+{{- if .Values.route.enabled }}{{ $routeMode = include "ambari.route.tlsMode" . }}{{ end }}
 {{- if and .Values.route.enabled (.Capabilities.APIVersions.Has "route.openshift.io/v1") }}
   URL      : https://{{ .Values.route.host }}/
-  TLS      : {{ if .Values.api.tls.enabled }}terminated by Ambari on {{ .Values.api.tls.port }}, route {{ .Values.route.tls.mode }}{{ else }}terminated by the router ({{ .Values.route.tls.mode }}){{ if eq .Values.route.tls.mode "edgeWithCert" }}, certificate from Secret {{ include "ambari.route.tlsSecretName" . }}{{ end }}{{ end }}
+  TLS      : {{ if .Values.api.tls.enabled }}terminated by Ambari on {{ .Values.api.tls.port }}, route {{ $routeMode }}{{ else }}terminated by the router ({{ $routeMode }}){{ if eq $routeMode "edgeWithCert" }}, certificate from Secret {{ include "ambari.route.tlsSecretName" . }}{{ end }}{{ end }}
+{{- if not .Values.api.tls.enabled }}
+             WARNING -- from the router to the pod the traffic is plain HTTP, sign-ins and uploaded
+             secrets included. Set api.tls.enabled for TLS end to end (README, "TLS on the server
+             itself").
+{{- end }}
 {{- else if .Values.ingress.enabled }}
   URL      : https://{{ .Values.ingress.host }}/
+{{- if .Values.api.tls.enabled }}
+  TLS      : terminated by Ambari on {{ .Values.api.tls.port }}. The ingress controller has to speak
+             HTTPS to it: with ingress-nginx, annotate nginx.ingress.kubernetes.io/backend-protocol: HTTPS.
+{{- else }}
+  TLS      : WARNING -- from the ingress controller to the pod the traffic is plain HTTP, sign-ins
+             and uploaded secrets included. Set api.tls.enabled for TLS end to end.
+{{- end }}
 {{- else }}
   URL      : kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "ambari.fullname" . }} 8080:{{ .Values.service.port }}
+{{- end }}
+
+{{- if .Values.networkPolicy.enabled }}
+{{- if include "ambari.networkPolicy.peers" . }}
+  Network  : NetworkPolicy {{ include "ambari.fullname" . }} admits connections to port {{ include "ambari.serverPortName" . }} only from
+{{- range .Values.networkPolicy.ingressNamespaceSelectors }}
+{{- $labels := list }}{{ range $k, $v := . }}{{ $labels = append $labels (printf "%s=%v" $k $v) }}{{ end }}
+               namespaces labelled {{ join "," $labels }}
+{{- end }}
+{{- range .Values.networkPolicy.allowedCIDRs }}
+               {{ . }}
+{{- end }}
+{{- if .Values.networkPolicy.extraFrom }}
+               and the {{ len .Values.networkPolicy.extraFrom }} peer(s) of networkPolicy.extraFrom
+{{- end }}
+{{- else }}
+  Network  : NetworkPolicy {{ include "ambari.fullname" . }} admits no connection at all: reach the server
+             with port-forward only.
+{{- end }}
+{{- else }}
+  Network  : WARNING -- any pod in the cluster can connect to the server (networkPolicy.enabled=false).
+             Turn it on to admit the router or ingress controller only.
 {{- end }}
 
 First start creates the Ambari schema when the database is empty, so give it a few minutes.
@@ -25,7 +93,7 @@ has to allow the driver's inline volume.
     kubectl label ns {{ .Release.Namespace }} \
       pod-security.kubernetes.io/enforce=privileged \
       security.openshift.io/scc.podSecurityLabelSync=false
-{{- if and .Values.vault.csi.routeCert.enabled (eq .Values.route.tls.mode "edgeWithCert") }}
+{{- if and .Values.vault.csi.routeCert.enabled (eq $routeMode "edgeWithCert") }}
 
 The route certificate is one of those secrets, and a CSI-synced Secret exists only while a pod that
 mounts it is running. The Route is therefore in a later Argo CD sync wave. With plain helm on a
@@ -34,7 +102,18 @@ install with route.tls.mode=edge and switch afterwards.
 {{- end }}
 {{- end }}
 
-Then sign in (admin/admin by default — change it) and point the KDPS view at this cluster, once:
+Then sign in as admin{{ if $adminSecret }} with that password{{ end }} and point the KDPS view at this cluster, once:
+{{- if .Values.inClusterServiceAccount.enabled }}
+{{- $sa := printf "%s:%s" .Release.Namespace (include "ambari.serviceAccountName" .) }}
+  * In-cluster: KDPS -> Configuration -> "Connect with this ServiceAccount" (inClusterServiceAccount).
+                KDPS then acts as system:serviceaccount:{{ $sa }}, which this chart grants
+                nothing. In each project KDPS deploys to, grant it admin and, on OpenShift,
+                monitoring-edit (OPERATIONS.md §2):
+                  oc -n <project> create rolebinding kdps-admin --clusterrole=admin \
+                    --serviceaccount={{ $sa }}
+                  oc -n <project> create rolebinding kdps-monitoring-edit --clusterrole=monitoring-edit \
+                    --serviceaccount={{ $sa }}
+{{- end }}
   * OpenShift : KDPS -> Configuration -> log in with the API URL and an account that can deploy.
                 Stored in the Ambari database, so it survives pod restarts and upgrades.
   * Kubernetes: KDPS -> Configuration -> upload a kubeconfig. That one is a FILE under

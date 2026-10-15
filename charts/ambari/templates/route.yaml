@@ -2,12 +2,14 @@
 {{- /* A router that speaks plain HTTP to a server that only speaks TLS produces a 503 and no
        explanation, so refuse the combination rather than ship it. Checked outside the capability
        guard below, so `helm template` catches it without a cluster to ask. */}}
+{{- $mode := "" }}
 {{- if .Values.route.enabled }}
-{{- if and .Values.api.tls.enabled (has $tls.mode (list "edge" "edgeWithCert")) }}
-{{- fail "api.tls.enabled makes the server HTTPS-only: route.tls.mode must be reencrypt or passthrough" }}
+{{- $mode = include "ambari.route.tlsMode" . }}
+{{- if and .Values.api.tls.enabled (has $mode (list "edge" "edgeWithCert")) }}
+{{- fail "api.tls.enabled makes the server HTTPS-only: route.tls.mode must be reencrypt or passthrough (or empty, to pick one)" }}
 {{- end }}
-{{- if and (not .Values.api.tls.enabled) (has $tls.mode (list "reencrypt" "passthrough")) }}
-{{- fail (printf "route.tls.mode=%s needs the server to serve TLS: set api.tls.enabled" $tls.mode) }}
+{{- if and (not .Values.api.tls.enabled) (has $mode (list "reencrypt" "passthrough")) }}
+{{- fail (printf "route.tls.mode=%s needs the server to serve TLS: set api.tls.enabled" $mode) }}
 {{- end }}
 {{- end }}
 {{- if and .Values.route.enabled (.Capabilities.APIVersions.Has "route.openshift.io/v1") }}
@@ -24,7 +26,7 @@ metadata:
       does. The Route therefore has to be applied after the Deployment, or the API server rejects it
       for naming a Secret that is not there yet. A later sync wave is how Argo CD is told that.
     */}}
-    {{- if and (eq .Values.route.tls.mode "edgeWithCert") .Values.vault.csi.routeCert.enabled }}
+    {{- if and (eq $mode "edgeWithCert") .Values.vault.csi.routeCert.enabled }}
     argocd.argoproj.io/sync-wave: "1"
     {{- end }}
     {{- with .Values.route.annotations }}
@@ -32,7 +34,7 @@ metadata:
     {{- end }}
 spec:
   host: {{ required "route.host is required when route.enabled" .Values.route.host | quote }}
-  {{- if not (has $tls.mode (list "passthrough")) }}
+  {{- if not (has $mode (list "passthrough")) }}
   path: /
   {{- end }}
   to:
@@ -40,17 +42,17 @@ spec:
     name: {{ include "ambari.fullname" . }}
     weight: 100
   port:
-    targetPort: {{ if has $tls.mode (list "passthrough" "reencrypt") }}https{{ else }}http{{ end }}
+    targetPort: {{ if has $mode (list "passthrough" "reencrypt") }}https{{ else }}http{{ end }}
   tls:
-    termination: {{ if eq $tls.mode "edgeWithCert" }}edge{{ else }}{{ $tls.mode }}{{ end }}
+    termination: {{ if eq $mode "edgeWithCert" }}edge{{ else }}{{ $mode }}{{ end }}
     insecureEdgeTerminationPolicy: {{ $tls.insecureEdgeTerminationPolicy }}
-    {{- if and (eq $tls.mode "reencrypt") $tls.destinationCACertificate }}
+    {{- if and (eq $mode "reencrypt") $tls.destinationCACertificate }}
     # The router verifies the certificate Ambari serves, so it needs the CA that signed it. With a
     # self-signed or privately-issued certificate, passthrough avoids having to publish the CA here.
     destinationCACertificate: |
 {{ $tls.destinationCACertificate | indent 6 }}
     {{- end }}
-    {{- if eq $tls.mode "edgeWithCert" }}
+    {{- if eq $mode "edgeWithCert" }}
     # The certificate stays in its Secret and is referenced, not inlined: the rendered manifest
     # carries no private key, so Argo CD neither stores nor diffs it. Requires OpenShift >= 4.16
     # and the router being allowed to read the Secret (see rbac-router-cert.yaml).

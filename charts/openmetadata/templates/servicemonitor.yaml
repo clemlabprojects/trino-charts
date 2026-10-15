@@ -1,19 +1,22 @@
 {{- if .Values.serviceMonitor.enabled -}}
-{{- $releaseLabel := "" -}}
-{{- if .Values.serviceMonitor.labels -}}
-  {{- $releaseLabel = default "" .Values.serviceMonitor.labels.release -}}
-{{- end -}}
+{{- /* The 'release' label is what a kube-prometheus-stack Prometheus selects ServiceMonitors by. It is set only when
+     given: OpenShift user-workload monitoring selects by project, not by label. monitoring.release is the older place
+     for it; dig keeps the lookup working when values carry no 'monitoring' block at all. */ -}}
+{{- $labels := .Values.serviceMonitor.labels | default dict -}}
+{{- $releaseLabel := default "" $labels.release -}}
 {{- if not $releaseLabel -}}
-  {{- $releaseLabel = default "" .Values.monitoring.release -}}
+  {{- $releaseLabel = dig "release" "" (.Values.monitoring | default dict) -}}
 {{- end -}}
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
   name: {{ include "openmetadata.fullname" . }}
-  namespace: {{ coalesce .Values.serviceMonitor.namespace .Values.monitoring.namespace .Release.Namespace }}
+  {{- /* Always the release's own namespace: the only one a project-scoped account can write to, the one OpenShift
+       user-workload monitoring reads, and the only one namespaceSelector below matches. */}}
+  namespace: {{ .Release.Namespace }}
   labels:
     {{- include "openmetadata.labels" . | nindent 4 }}
-    {{- with .Values.serviceMonitor.labels }}
+    {{- with omit $labels "release" }}
     {{- toYaml . | nindent 4 }}
     {{- end }}
     {{- if $releaseLabel }}

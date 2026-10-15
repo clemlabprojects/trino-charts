@@ -183,6 +183,7 @@ spec:
         - name: init-https-keystore
           image: {{ include "trino.busybox.image" (dict "root" .) }}
           imagePullPolicy: {{ default "IfNotPresent" .Values.busyboxImage.pullPolicy }}
+          {{- include "trino.initContainer.resources" (dict "root" . "indent" 10) }}
           command:
             - sh
             - -c
@@ -224,7 +225,13 @@ spec:
             {{- include "trino.polaris.env" . | nindent 12 }}
             {{- include "trino.s3cred.env" . | nindent 12 }}
           envFrom:
-            {{- tpl (toYaml .Values.envFrom) . | nindent 12 }}
+            {{- with .Values.envFrom }}
+            {{- tpl (toYaml .) $ | nindent 12 }}
+            {{- end }}
+            {{- range .Values.catalogCredentialSecrets }}
+            - secretRef:
+                name: {{ . | quote }}
+            {{- end }}
           volumeMounts:
             - mountPath: {{ .Values.server.config.path }}
               name: config-volume

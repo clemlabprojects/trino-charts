@@ -84,8 +84,13 @@ global:
 
     # Authentication profile — injected by Ambari K8S view global security profile.
     # Supported modes: none | ldap | ad | oidc
+    # The bind password (ldap/ad) and the inline OIDC client secret go to the Secret
+    # <fullname>-auth-credentials (keys bind-password, oidc-client-secret); the pods read them from it
+    # and the configuration files reference them as ${ENV:...}, so they never sit in a ConfigMap.
     auth:
       mode: none
+      # Name of a Secret you provide with those keys instead; bindPassword and clientSecret are then ignored.
+      existingSecret: ""
       oidc:
         issuerUrl: ""
         secretRef:
@@ -433,6 +438,9 @@ server:
       secretName: ""
       # -- Key within the Secret that holds the token.
       secretKey: token
+      # -- Key within the same Secret that holds the CA certificate used to verify the scaler's endpoint
+      # (e.g. `service-ca.crt` in an OpenShift service-account-token Secret). Empty = no `ca` parameter.
+      caKey: ""
     triggers: []
     # server.keda.triggers -- List of triggers to activate scaling of the target resource
     # @raw
@@ -827,6 +835,16 @@ envFrom: []
 #     name: extra-secret
 # ```
 
+catalogCredentialSecrets: []
+# catalogCredentialSecrets -- Secrets in the release namespace holding the credentials of catalogs. Every key of
+# each Secret becomes an environment variable of the coordinator and the workers, so that a catalog references it
+# as `${ENV:KEY}` instead of writing the password into the catalog ConfigMap. Restart Trino after changing one.
+# @raw
+# Example:
+# ```yaml
+#   - postgres-prod-credentials   # key PG_PASSWORD, used as connection-password=${ENV:PG_PASSWORD}
+# ```
+
 initContainers: {}
 # initContainers -- Additional [containers that run to
 # completion](https://kubernetes.io/docs/concepts/workloads/pods/init-containers/)
@@ -843,6 +861,23 @@ initContainers: {}
 #    - name: init-worker
 #      image: busybox:1.28
 #      command: ['sh', '-c', 'echo The worker is running! && sleep 3600']
+# ```
+
+initContainerResources: {}
+# initContainerResources -- Resources of the init containers the chart adds itself (HTTPS keystore,
+# Ranger directories, dynamic catalog store, Hadoop group mapping overlay). Kubernetes counts init
+# containers when it sets the pod QoS class: give them requests equal to limits, as for the coordinator
+# and workers, to keep the pods in the Guaranteed class. Does not apply to `initContainers`, which carry
+# their own resources.
+# @raw
+# Example:
+# ```yaml
+#  requests:
+#    cpu: 100m
+#    memory: 128Mi
+#  limits:
+#    cpu: 100m
+#    memory: 128Mi
 # ```
 
 sidecarContainers: {}
@@ -970,7 +1005,21 @@ coordinator:
     # coordinator.deployment.strategy -- The deployment strategy to use to replace existing pods with new ones.
 
   jvm:
-    maxHeapSize: "8G"
+    maxHeapSize: ""
+    # coordinator.jvm.maxHeapSize -- Fixed Java heap size, rendered as `-Xmx` (for example `6G`; Java reads `G` as GiB).
+    # Leave empty to size the heap from the container memory limit with `maxRAMPercentage` instead, so the heap
+    # follows the limit when it changes. An explicit heap must stay well below `coordinator.resources.limits.memory`,
+    # around 70-80% of it: the JVM also needs memory outside the heap, and the container is killed when it goes
+    # over the limit. With no memory limit in `coordinator.resources`, an empty value gives a fixed 8G heap, as
+    # earlier chart versions did: a share of the node memory in every Trino pod on the node could add up to more
+    # than the node has.
+    maxRAMPercentage: 75
+    # coordinator.jvm.maxRAMPercentage -- Heap as a percentage of the container memory limit, used when `maxHeapSize`
+    # is empty and a memory limit is set.
+    initialRAMPercentage: ""
+    # coordinator.jvm.initialRAMPercentage -- Initial heap as a percentage of the container memory limit, used when
+    # `maxHeapSize` is empty and a memory limit is set. Empty means the same as `maxRAMPercentage`; it must not be
+    # higher.
     gcMethod:
       type: "UseG1GC"
       g1:
@@ -1157,7 +1206,21 @@ worker:
     # worker.deployment.strategy -- The deployment strategy to use to replace existing pods with new ones.
 
   jvm:
-    maxHeapSize: "8G"
+    maxHeapSize: ""
+    # worker.jvm.maxHeapSize -- Fixed Java heap size, rendered as `-Xmx` (for example `6G`; Java reads `G` as GiB).
+    # Leave empty to size the heap from the container memory limit with `maxRAMPercentage` instead, so the heap
+    # follows the limit when it changes. An explicit heap must stay well below `worker.resources.limits.memory`,
+    # around 70-80% of it: the JVM also needs memory outside the heap, and the container is killed when it goes
+    # over the limit. With no memory limit in `worker.resources`, an empty value gives a fixed 8G heap, as
+    # earlier chart versions did: a share of the node memory in every Trino pod on the node could add up to more
+    # than the node has.
+    maxRAMPercentage: 75
+    # worker.jvm.maxRAMPercentage -- Heap as a percentage of the container memory limit, used when `maxHeapSize`
+    # is empty and a memory limit is set.
+    initialRAMPercentage: ""
+    # worker.jvm.initialRAMPercentage -- Initial heap as a percentage of the container memory limit, used when
+    # `maxHeapSize` is empty and a memory limit is set. Empty means the same as `maxRAMPercentage`; it must not be
+    # higher.
     gcMethod:
       type: "UseG1GC"
       g1:

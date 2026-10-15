@@ -43,7 +43,7 @@ spec:
     metadata:
       annotations:
         checksum/wsconfig: {{ tpl (toJson .Values.supersetWebsockets.config) . | sha256sum }}
-        checksum/secrets: {{ tpl (toJson .Values.extraSecretEnv) . | sha256sum }}
+        checksum/secrets: {{ include "superset.secrets.checksum" . }}
         {{- if .Values.supersetWebsockets.podAnnotations }}
           {{- toYaml .Values.supersetWebsockets.podAnnotations | nindent 8 }}
         {{- end }}
@@ -79,14 +79,12 @@ spec:
           command: {{  tpl (toJson .Values.supersetWebsockets.command) . }}
           # Passing all the envs is a bit blunt... we only need a few (see https://github.com/apache/superset/blob/master/superset-websocket/src/config.ts)...
           env:
-            {{- range $key, $value := .Values.extraEnv }}
-            - name: {{ $key | quote}}
-              value: {{ $value | quote }}
-            {{- end }}
+            {{- include "superset.extraEnv" . | nindent 12 }}
             {{- if .Values.extraEnvRaw }}
             {{- toYaml .Values.extraEnvRaw | nindent 12 }}
             {{- end }}
             {{ include "superset.security.env" . | nindent 12 }}
+            {{- include "superset.connections.env" . | nindent 12 }}
             {{ include "superset.truststore.env" . | nindent 12 }}
           envFrom:
             - secretRef:

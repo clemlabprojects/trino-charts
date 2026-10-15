@@ -1,0 +1,30 @@
+{{- /* The console carries the administrator's password and every secret uploaded to KDPS, and
+       nothing in the cluster but the router (or the ingress controller) has a reason to talk to it:
+       the KDPS view runs inside this server, and the kubelet's probes are not subject to the policy.
+       Only incoming connections are restricted. The server itself reaches the cluster API, the
+       database, Vault, Git and the Helm repositories, which differ from one installation to the
+       next. */}}
+{{- if .Values.networkPolicy.enabled }}
+{{- $peers := include "ambari.networkPolicy.peers" . }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "ambari.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "ambari.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels: {{- include "ambari.selectorLabels" . | nindent 6 }}
+  policyTypes: [Ingress]
+  {{- if $peers }}
+  ingress:
+    - from: {{- $peers | nindent 8 }}
+      ports:
+        - protocol: TCP
+          port: {{ include "ambari.serverPortName" . }}
+  {{- else }}
+  # No peer is configured: nobody may connect, and the console is reachable only through
+  # `kubectl port-forward`.
+  ingress: []
+  {{- end }}
+{{- end }}

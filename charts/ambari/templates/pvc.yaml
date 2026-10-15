@@ -1,4 +1,4 @@
-{{- if and .Values.persistence.enabled (not .Values.persistence.existingClaim) }}
+{{- if and (include "ambari.persistence.onClaim" .) (not .Values.persistence.existingClaim) }}
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -6,9 +6,11 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels: {{- include "ambari.labels" . | nindent 4 }}
   annotations:
-    # This claim holds the master key that encrypts values in the Ambari database, and the KDPS
-    # view's kubeconfig. Deleting it with the release would leave the database unreadable, so it
-    # outlives `helm uninstall` and is removed deliberately or not at all.
+    # This claim holds the KDPS internal CA that signed the certificates of the services KDPS
+    # deployed, and Ambari's credential store with the Git credentials of GitOps releases. The master
+    # key that encrypts the store is not on it: it comes from a Secret. Losing the claim means a new
+    # CA, and the services deployed before and after it no longer trust each other, so it outlives
+    # `helm uninstall` and is removed deliberately or not at all.
     helm.sh/resource-policy: keep
 spec:
   accessModes: {{- toYaml .Values.persistence.accessModes | nindent 4 }}

@@ -20,9 +20,26 @@ spec:
         {{- with .Values.podLabels }}{{- toYaml . | nindent 8 }}{{- end }}
       annotations:
         checksum/db: {{ include (print $.Template.BasePath "/secret-db.yaml") . | sha256sum }}
+        {{- if .Values.logs.rotation.enabled }}
+        # The server reads logback.xml at start-up, and a subPath mount never sees a later change.
+        checksum/logging: {{ include (print $.Template.BasePath "/configmap-logging.yaml") . | sha256sum }}
+        {{- end }}
         {{- with .Values.podAnnotations }}{{- toYaml . | nindent 8 }}{{- end }}
     spec:
       serviceAccountName: {{ include "ambari.serviceAccountName" . }}
+      {{- /* The token is mounted only when KDPS connects with it (inClusterServiceAccount) or serviceAccount.automountToken
+      asks for it: otherwise whoever gets into the pod would hold the grants of an account KDPS does not use. KDPS views
+      built before they looked at the KUBERNETES_SERVICE_* variables alone take a pod without a token for one outside the
+      cluster. */}}
+      {{- if .Values.inClusterServiceAccount.enabled }}
+      # KDPS connects with this token: asked for even when the ServiceAccount opts out of mounting it.
+      automountServiceAccountToken: true
+      {{- else }}
+      automountServiceAccountToken: {{ .Values.serviceAccount.automountToken | default false }}
+      {{- end }}
+      # Longer than the server's own stop timeout (AMBARI_STOP_TIMEOUT below), so the server stops
+      # cleanly instead of being killed with the pod.
+      terminationGracePeriodSeconds: {{ int .Values.terminationGracePeriodSeconds }}
       {{- include "ambari.imagePullSecrets" . | nindent 6 }}
       {{- with .Values.podSecurityContext }}
       securityContext: {{- toYaml . | nindent 8 }}
@@ -36,7 +53,7 @@ spec:
       {{- with .Values.affinity }}
       affinity: {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- if or .Values.passwdShim.enabled .Values.api.tls.enabled }}
+      {{- if or .Values.passwdShim.enabled .Values.api.tls.enabled (include "ambari.persistence.onClaim" .) }}
       initContainers:
         {{- if .Values.passwdShim.enabled }}
         # OpenShift runs the pod under a random UID with no /etc/passwd entry, and Ambari's Python
@@ -104,6 +121,28 @@ spec:
             - name: https-keystore
               mountPath: /https
         {{- end }}
+        {{- if include "ambari.persistence.onClaim" . }}
+        # The claim's keys/ is mounted over the image's /var/lib/ambari-server/keys, which ships the
+        # files Ambari's certificate tooling needs (ca.config, db/). Copy in those the claim does not
+        # have yet, and never replace one: the credential store and the files the server already uses
+        # stay as they are. Not cp -a: the directory the claim gives is the kubelet's, and setting its
+        # times or mode fails for this UID.
+        - name: seed-keys
+          image: {{ include "ambari.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+              cp -Rn /var/lib/ambari-server/keys/. /data/keys/
+              echo "keys/ on the claim holds:" $(ls -A /data/keys)
+          securityContext: {{- toYaml .Values.securityContext | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /data/keys
+              subPath: keys
+        {{- end }}
       {{- end }}
       containers:
         - name: ambari
@@ -129,6 +168,25 @@ spec:
                 secretKeyRef:
                   name: {{ include "ambari.masterKey.secretName" . }}
                   key: {{ include "ambari.masterKey.secretKey" . }}
+            {{- with include "ambari.adminPassword.secretName" . }}
+            # Replaces the default admin/admin on the first start, before the pod is Ready.
+            - name: AMBARI_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ . }}
+                  key: {{ include "ambari.adminPassword.secretKey" $ }}
+            {{- end }}
+            {{- if .Values.adminPassword.allowDefault }}
+            - name: AMBARI_ADMIN_ALLOW_DEFAULT
+              value: "true"
+            {{- end }}
+            {{- if .Values.schemaUpgrade.enabled }}
+            # Upgrades a database schema of an earlier Ambari line before the server starts.
+            - name: AMBARI_SCHEMA_UPGRADE
+              value: "true"
+            {{- end }}
+            - name: AMBARI_STOP_TIMEOUT
+              value: {{ include "ambari.stopTimeoutSeconds" . | quote }}
             - name: AMBARI_EXTRA_PROPERTIES
               value: |-
 {{ include "ambari.extraProperties" . | indent 16 }}
@@ -143,12 +201,16 @@ spec:
               port: {{ include "ambari.serverPortName" . }}
             {{- toYaml .Values.livenessProbe | nindent 12 }}
           readinessProbe:
-            # Ambari serves its login page unauthenticated; the API would answer 401 and never
-            # become ready.
-            httpGet:
-              path: /
-              port: {{ include "ambari.serverPortName" . }}
-              scheme: {{ if .Values.api.tls.enabled }}HTTPS{{ else }}HTTP{{ end }}
+            # Ready only once the entrypoint has replaced the default admin/admin (or was told to keep
+            # it), so the Service and the Route never send anyone to a console that accepts it; and
+            # while the server answers with its login page, which needs no sign-in -- the API would
+            # answer 401 and never become ready. -k because the certificate names the route host,
+            # not the loopback.
+            exec:
+              command:
+                - sh
+                - -c
+                - test -f /tmp/admin-bootstrapped && curl -fsS -o /dev/null {{ if .Values.api.tls.enabled }}-k https://127.0.0.1:{{ .Values.api.tls.port }}/{{ else }}http://127.0.0.1:8080/{{ end }}
             {{- toYaml .Values.readinessProbe | nindent 12 }}
           resources: {{- toYaml .Values.resources | nindent 12 }}
           volumeMounts:
@@ -157,14 +219,21 @@ spec:
               mountPath: /etc/passwd
               subPath: passwd
             {{- end }}
-            {{- if .Values.persistence.enabled }}
-            # Only the view's own working directory is persisted -- the uploaded kubeconfig and its
-            # cache. Mounting the whole of /var/lib/ambari-server would hide the image's content
-            # there, including ambari-env.sh, which is what puts ambari_commons on PYTHONPATH, and
-            # would freeze the stacks and view jars at whatever the first image shipped.
+            {{- if include "ambari.persistence.onClaim" . }}
+            # Two directories are kept on the claim (see persistence in values.yaml): the view's working
+            # directory, which holds the KDPS internal CA, and keys/, Ambari's credential store, where
+            # the view keeps the Git credentials of GitOps releases. keys/ is mounted where the server
+            # and the view both read it: moving only the view's store, with
+            # security.server.credential_store_path, which the server ignores, would split their
+            # secrets over two files. Mounting the whole of /var/lib/ambari-server would hide the
+            # image's content there, including ambari-env.sh, which is what puts ambari_commons on
+            # PYTHONPATH, and would freeze the stacks and view jars at whatever the first image shipped.
             - name: data
               mountPath: /var/lib/ambari-server/resources/views/k8s-view-data
               subPath: k8s-view-data
+            - name: data
+              mountPath: /var/lib/ambari-server/keys
+              subPath: keys
             {{- end }}
             {{- if or .Values.views.existingClaim .Values.views.configMap }}
             - name: views
@@ -181,13 +250,23 @@ spec:
               mountPath: /vault/secrets
               readOnly: true
             {{- end }}
+            {{- if .Values.logs.persistence.enabled }}
+            - name: logs
+              mountPath: /var/log/ambari-server
+            {{- end }}
+            {{- if .Values.logs.rotation.enabled }}
+            - name: logging
+              mountPath: /etc/ambari-server/conf/logback.xml
+              subPath: logback.xml
+              readOnly: true
+            {{- end }}
             {{- with .Values.extraVolumeMounts }}{{- toYaml . | nindent 12 }}{{- end }}
       volumes:
         {{- if .Values.passwdShim.enabled }}
         - name: passwd-shim
           emptyDir: {}
         {{- end }}
-        {{- if .Values.persistence.enabled }}
+        {{- if include "ambari.persistence.onClaim" . }}
         - name: data
           persistentVolumeClaim:
             claimName: {{ .Values.persistence.existingClaim | default (include "ambari.fullname" .) }}
@@ -218,5 +297,23 @@ spec:
             readOnly: true
             volumeAttributes:
               secretProviderClass: {{ include "ambari.vault.secretProviderClassName" . }}
+        {{- end }}
+        {{- if .Values.logs.persistence.enabled }}
+        - name: logs
+          {{- if include "ambari.logs.onClaim" . }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.logs.persistence.existingClaim | default (printf "%s-logs" (include "ambari.fullname" .)) }}
+          {{- else }}
+          emptyDir:
+            {{- with .Values.logs.persistence.sizeLimit }}
+            sizeLimit: {{ . | quote }}
+            {{- else }} {}
+            {{- end }}
+          {{- end }}
+        {{- end }}
+        {{- if .Values.logs.rotation.enabled }}
+        - name: logging
+          configMap:
+            name: {{ include "ambari.fullname" . }}-logging
         {{- end }}
         {{- with .Values.extraVolumes }}{{- toYaml . | nindent 8 }}{{- end }}

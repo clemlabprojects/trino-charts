@@ -21,7 +21,7 @@ data:
   jvm.config: |
     -server
     -agentpath:/usr/lib/trino/bin/libjvmkill.so
-    -Xmx{{ .Values.worker.jvm.maxHeapSize }}
+    {{- include "trino.jvm.heapOptions" (dict "jvm" .Values.worker.jvm "resources" .Values.worker.resources) | nindent 4 }}
     -XX:+{{ .Values.worker.jvm.gcMethod.type }}
     -XX:G1HeapRegionSize={{ .Values.worker.jvm.gcMethod.g1.heapRegionSize }}
     -XX:+ExplicitGCInvokesConcurrent
@@ -69,11 +69,17 @@ data:
     memory.heap-headroom-per-node={{ .Values.worker.config.memory.heapHeadroomPerNode }}
     {{- end }}
     discovery.uri=http://{{ template "trino.fullname" . }}:{{ .Values.service.port }}
+    {{- /* Written from a Secret: the same property in additionalConfigProperties is left out, its literal value
+           would sit in this ConfigMap. Values written by earlier KDPS versions carried both. */}}
+    {{- $fromSecrets := list }}
     {{- if or .Values.server.config.authenticationType (eq $authMode "oidc") (eq $authMode "ldap") (eq $authMode "ad") (eq (((.Values.kdps | default dict).serviceUser | default dict).enabled | toString) "true") }}
+    {{- $fromSecrets = append $fromSecrets "internal-communication.shared-secret" }}
     internal-communication.shared-secret=${ENV:TRINO_INTERNAL_SHARED_SECRET}
     {{- end }}
     {{- range $configValue := .Values.additionalConfigProperties }}
+    {{- if not (has (include "trino.propertyKey" $configValue) $fromSecrets) }}
     {{ $configValue }}
+    {{- end }}
     {{- end }}
     {{- if .Values.dynamicCatalogs.enabled }}
     catalog.management=dynamic

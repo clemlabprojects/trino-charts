@@ -235,6 +235,18 @@ spec:
                   key: ldap-bind-password
             {{- end }}
 
+            # ── Airflow account the server deploys pipelines with ──────────
+            {{- $airflowAuth := .Values.openmetadata.config.pipelineServiceClientConfig.auth | default dict }}
+            {{- if $airflowAuth.existingSecret }}
+            - name: AIRFLOW_USERNAME
+              value: {{ $airflowAuth.username | default "admin" | quote }}
+            - name: AIRFLOW_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $airflowAuth.existingSecret | quote }}
+                  key: {{ $airflowAuth.passwordKey | default "password" | quote }}
+            {{- end }}
+
             # ── TLS keystore password ───────────────────────────────────────
             {{- if .Values.openmetadata.config.tls.enabled }}
             - name: SERVER_SSL_KEYSTORE_PASSWORD

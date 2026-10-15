@@ -40,7 +40,7 @@ spec:
     metadata:
       annotations:
         checksum/config: {{ include "superset-config" . | sha256sum }}
-        checksum/secrets: {{ tpl (toJson .Values.extraSecretEnv) . | sha256sum }}
+        checksum/secrets: {{ include "superset.secrets.checksum" . }}
         {{- if .Values.supersetCeleryFlower.podAnnotations }}
           {{- toYaml .Values.supersetCeleryFlower.podAnnotations | nindent 8 }}
         {{- end }}
@@ -78,14 +78,12 @@ spec:
           {{- end }}
           command: {{  tpl (toJson .Values.supersetCeleryFlower.command) . }}
           env:
-            {{- range $key, $value := .Values.extraEnv }}
-            - name: {{ $key | quote}}
-              value: {{ $value | quote }}
-            {{- end }}
+            {{- include "superset.extraEnv" . | nindent 12 }}
             {{- if .Values.extraEnvRaw }}
               {{- toYaml .Values.extraEnvRaw | nindent 12 }}
             {{- end }}
             {{ include "superset.security.env" . | nindent 12 }}
+            {{- include "superset.connections.env" . | nindent 12 }}
             {{ include "superset.truststore.env" . | nindent 12 }}
           envFrom:
             - secretRef:

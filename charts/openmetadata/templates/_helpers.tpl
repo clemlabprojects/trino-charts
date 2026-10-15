@@ -55,6 +55,19 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 app.kubernetes.io/part-of: openmetadata
 {{- end }}
 
+{{/*
+Labels of the administrator password Job: its own name, so the server's Service never selects its pod, and the
+release's instance label, which admits it to the bundled PostgreSQL when its NetworkPolicy is limited to the release.
+*/}}
+{{- define "openmetadata.adminPasswordLabels" -}}
+helm.sh/chart: {{ include "openmetadata.chart" . }}
+app.kubernetes.io/name: {{ include "openmetadata.name" . }}-admin-password
+app.kubernetes.io/instance: {{ .Release.Name }}
+app.kubernetes.io/component: admin-password
+app.kubernetes.io/managed-by: {{ .Release.Service }}
+app.kubernetes.io/part-of: openmetadata
+{{- end }}
+
 {{- define "openmetadata.ingestionSelectorLabels" -}}
 app.kubernetes.io/name: {{ include "openmetadata.name" . }}-ingestion
 app.kubernetes.io/instance: {{ .Release.Name }}
@@ -208,11 +221,12 @@ Falls back to global.security.adminUsers if adminPrincipals is empty.
 {{- end }}
 
 {{/*
-Name of the Secret that holds the postgresql password.
+Name of the Secret that holds the postgresql password: with the bundled postgresql, the Secret its auth.existingSecret
+names, else the one the sub-chart creates.
 */}}
 {{- define "openmetadata.dbPasswordSecretName" -}}
 {{- if .Values.postgresql.enabled -}}
-{{- printf "%s-postgresql" .Release.Name -}}
+{{- .Values.postgresql.auth.existingSecret | default (printf "%s-postgresql" .Release.Name) -}}
 {{- else if .Values.externalDatabase.existingSecret -}}
 {{- .Values.externalDatabase.existingSecret -}}
 {{- else -}}
@@ -221,7 +235,8 @@ Name of the Secret that holds the postgresql password.
 {{- end }}
 
 {{- define "openmetadata.dbPasswordSecretKey" -}}
-{{- if .Values.postgresql.enabled -}}password
+{{- if .Values.postgresql.enabled -}}
+{{- ((.Values.postgresql.auth.secretKeys | default dict).userPasswordKey | default "password") -}}
 {{- else -}}db-password
 {{- end -}}
 {{- end }}

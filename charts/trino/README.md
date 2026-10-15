@@ -397,6 +397,13 @@ Fast distributed SQL query engine for big data analytics that helps you explore 
     - secretRef:
       name: extra-secret
   ```
+* `catalogCredentialSecrets` - list, default: `[]`  
+
+  Secrets in the release namespace holding the credentials of catalogs. Every key of each Secret becomes an environment variable of the coordinator and the workers, so that a catalog references it as `${ENV:KEY}` instead of writing the password into the catalog ConfigMap. Restart Trino after changing one.
+  Example:
+  ```yaml
+    - postgres-prod-credentials   # key PG_PASSWORD, used as connection-password=${ENV:PG_PASSWORD}
+  ```
 * `initContainers` - object, default: `{}`  
 
   Additional [containers that run to completion](https://kubernetes.io/docs/concepts/workloads/pods/init-containers/) during pod initialization.
@@ -411,6 +418,18 @@ Fast distributed SQL query engine for big data analytics that helps you explore 
      - name: init-worker
        image: busybox:1.28
        command: ['sh', '-c', 'echo The worker is running! && sleep 3600']
+  ```
+* `initContainerResources` - object, default: `{}`  
+
+  Resources of the init containers the chart adds itself (HTTPS keystore, Ranger directories, dynamic catalog store, Hadoop group mapping overlay). Kubernetes counts init containers when it sets the pod QoS class: give them requests equal to limits, as for the coordinator and workers, to keep the pods in the Guaranteed class. Does not apply to `initContainers`, which carry their own resources.
+  Example:
+  ```yaml
+   requests:
+     cpu: 100m
+     memory: 128Mi
+   limits:
+     cpu: 100m
+     memory: 128Mi
   ```
 * `sidecarContainers` - object, default: `{}`  
 
@@ -507,7 +526,15 @@ Fast distributed SQL query engine for big data analytics that helps you explore 
 * `coordinator.deployment.strategy` - object, default: `{}`  
 
   The deployment strategy to use to replace existing pods with new ones.
-* `coordinator.jvm.maxHeapSize` - string, default: `"8G"`
+* `coordinator.jvm.maxHeapSize` - string, default: `""`  
+
+  Fixed Java heap size, rendered as `-Xmx` (for example `6G`; Java reads `G` as GiB). Leave empty to size the heap from the container memory limit with `maxRAMPercentage` instead, so the heap follows the limit when it changes. An explicit heap must stay well below `coordinator.resources.limits.memory`, around 70-80% of it: the JVM also needs memory outside the heap, and the container is killed when it goes over the limit. With no memory limit in `coordinator.resources`, an empty value gives a fixed 8G heap, as earlier chart versions did: a share of the node memory in every Trino pod on the node could add up to more than the node has.
+* `coordinator.jvm.maxRAMPercentage` - int, default: `75`  
+
+  Heap as a percentage of the container memory limit, used when `maxHeapSize` is empty and a memory limit is set.
+* `coordinator.jvm.initialRAMPercentage` - string, default: `""`  
+
+  Initial heap as a percentage of the container memory limit, used when `maxHeapSize` is empty and a memory limit is set. Empty means the same as `maxRAMPercentage`; it must not be higher.
 * `coordinator.jvm.gcMethod.type` - string, default: `"UseG1GC"`
 * `coordinator.jvm.gcMethod.g1.heapRegionSize` - string, default: `"32M"`
 * `coordinator.config.memory.heapHeadroomPerNode` - string, default: `""`
@@ -645,7 +672,15 @@ Fast distributed SQL query engine for big data analytics that helps you explore 
 * `worker.deployment.strategy` - object, default: `{}`  
 
   The deployment strategy to use to replace existing pods with new ones.
-* `worker.jvm.maxHeapSize` - string, default: `"8G"`
+* `worker.jvm.maxHeapSize` - string, default: `""`  
+
+  Fixed Java heap size, rendered as `-Xmx` (for example `6G`; Java reads `G` as GiB). Leave empty to size the heap from the container memory limit with `maxRAMPercentage` instead, so the heap follows the limit when it changes. An explicit heap must stay well below `worker.resources.limits.memory`, around 70-80% of it: the JVM also needs memory outside the heap, and the container is killed when it goes over the limit. With no memory limit in `worker.resources`, an empty value gives a fixed 8G heap, as earlier chart versions did: a share of the node memory in every Trino pod on the node could add up to more than the node has.
+* `worker.jvm.maxRAMPercentage` - int, default: `75`  
+
+  Heap as a percentage of the container memory limit, used when `maxHeapSize` is empty and a memory limit is set.
+* `worker.jvm.initialRAMPercentage` - string, default: `""`  
+
+  Initial heap as a percentage of the container memory limit, used when `maxHeapSize` is empty and a memory limit is set. Empty means the same as `maxRAMPercentage`; it must not be higher.
 * `worker.jvm.gcMethod.type` - string, default: `"UseG1GC"`
 * `worker.jvm.gcMethod.g1.heapRegionSize` - string, default: `"32M"`
 * `worker.config.memory.heapHeadroomPerNode` - string, default: `""`

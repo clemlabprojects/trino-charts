@@ -6,7 +6,9 @@ on:
     branches: [ main ]
     paths:
       - "charts/ambari/**"
+      - "tests/ambari/**"
       - ".github/workflows/ambari-release-to-oci.yml"
+      - ".github/scripts/ambari-image-supported.sh"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -43,6 +45,18 @@ jobs:
           echo "chart_version=${CHART_VERSION}" >> "$GITHUB_OUTPUT"
           echo "Chart: ${CHART_NAME}  Version: ${CHART_VERSION}"
 
+      # The chart waits here until appVersion names an image whose entrypoint does what the chart
+      # relies on: with an earlier one its pod never becomes Ready (see the script). The CI/CD
+      # workflow asks the same before chart-releaser runs. This check is here rather than in
+      # tests/ambari so that it holds back this chart only, not the release of the others.
+      - name: Refuse an image older than the chart needs
+        run: |
+          if ! out=$(.github/scripts/ambari-image-supported.sh "${CHART_DIR}"); then
+            echo "::error::${out}"
+            exit 1
+          fi
+          echo "${out}"
+
       - name: Login to Harbor OCI registry (via helm)
         run: |
           printf '%s' '${{ secrets.ACTIONS_CLEMLABPROJECTS }}' \
@@ -62,7 +76,7 @@ jobs:
         run: |
           set -euo pipefail
           COMMON="--set database.host=postgres.example.svc --set database.existingSecret=client-pg \
-                  --set masterKey.existingSecret=ambari-master-key"
+                  --set masterKey.existingSecret=ambari-master-key --set adminPassword.existingSecret=ambari-admin"
           echo "--- OpenShift: external database, Route with our own certificate ---"
           helm template ambari "${CHART_DIR}" ${COMMON} \
             --set route.host=ambari.apps.example.com --set route.tls.mode=edgeWithCert >/dev/null
@@ -78,27 +92,54 @@ jobs:
             --set global.vault.auth.kubernetes.role=ambari \
             --set vault.csi.masterKey.enabled=true \
             --set vault.csi.masterKey.path=secret/data/kdps/ambari/master-key \
+            --set vault.csi.adminPassword.enabled=true \
+            --set vault.csi.adminPassword.path=secret/data/kdps/ambari/admin \
             --set vault.csi.database.enabled=true \
             --set vault.csi.database.path=secret/data/kdps/ambari/db \
             --set vault.csi.apiCert.enabled=true \
             --set vault.csi.apiCert.path=secret/data/kdps/ambari/api-cert \
             --set api.tls.enabled=true \
             --set route.host=ambari.apps.example.com --set route.tls.mode=passthrough >/dev/null
+          echo "--- OpenShift: TLS to the pod, Route mode picked from api.tls, router-only NetworkPolicy ---"
+          helm template ambari "${CHART_DIR}" ${COMMON} \
+            --set api.tls.enabled=true --set api.tls.existingSecret=ambari-api-tls \
+            --set route.host=ambari.apps.example.com --set networkPolicy.enabled=true >/dev/null
           echo "--- vanilla Kubernetes: Ingress instead of a Route ---"
           helm template ambari "${CHART_DIR}" \
             --set database.host=postgres.example.svc --set database.password=changeme \
-            --set masterKey.value=a-master-key \
+            --set masterKey.value=a-master-key --set adminPassword.value=a-first-password \
             --set route.enabled=false \
             --set ingress.enabled=true --set ingress.host=ambari.example.com >/dev/null
           echo "--- and the combinations the chart must refuse ---"
           ! helm template ambari "${CHART_DIR}" \
             --set database.host=postgres.example.svc --set database.password=changeme \
+            --set adminPassword.existingSecret=ambari-admin \
             --set route.host=ambari.apps.example.com >/dev/null 2>&1 \
             && echo "refused: no master key"
+          ! helm template ambari "${CHART_DIR}" \
+            --set database.host=postgres.example.svc --set database.password=changeme \
+            --set masterKey.existingSecret=ambari-master-key \
+            --set route.host=ambari.apps.example.com >/dev/null 2>&1 \
+            && echo "refused: no first administrator password"
           ! helm template ambari "${CHART_DIR}" ${COMMON} \
             --set api.tls.enabled=true --set api.tls.existingSecret=c \
             --set route.host=ambari.apps.example.com --set route.tls.mode=edge >/dev/null 2>&1 \
             && echo "refused: HTTPS server behind an edge route"
+
+      # The checks parse the rendered manifests and the logback.xml they carry.
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.x'
+      - name: Install PyYAML
+        run: pip install pyyaml
+      - name: Template checks
+        run: |
+          ./tests/ambari/test-shutdown-and-logs.sh
+          ./tests/ambari/test-admin-password.sh
+          ./tests/ambari/test-schema-upgrade.sh
+          ./tests/ambari/test-persistence.sh
+          ./tests/ambari/test-in-cluster-service-account.sh
+          ./tests/ambari/test-network-and-tls.sh
 
       - name: Package chart
         run: |

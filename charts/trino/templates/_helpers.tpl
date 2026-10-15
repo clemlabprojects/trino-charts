@@ -70,6 +70,70 @@ Create chart name and version as used by the chart label.
 {{ template "trino.fullname" . }}-catalog-worker
 {{- end -}}
 
+{{/*
+Credentials of the security profile: the LDAP/AD bind password and the inline OIDC client secret. They reach the pods
+from a Secret (secretKeyRef) and the configuration files reference them as ${ENV:...}, so that they never sit in a
+ConfigMap or a pod spec, where anyone allowed to read ConfigMaps or Deployments in the namespace could read them.
+*/}}
+
+{{/* The bind password in effect: the LDAP one, or in AD mode the AD one when no LDAP one is set. */}}
+{{- define "trino.auth.bindPassword" -}}
+{{- $auth := .Values.global.security.auth | default dict -}}
+{{- $mode := lower (default "" $auth.mode) -}}
+{{- $password := ($auth.ldap | default dict).bindPassword | default "" -}}
+{{- if eq $mode "ad" -}}
+{{- $password = default (($auth.ad | default dict).bindPassword | default "") $password -}}
+{{- end -}}
+{{- if or (eq $mode "ldap") (eq $mode "ad") -}}{{ $password }}{{- end -}}
+{{- end -}}
+
+{{/* "true" when the OIDC client is given inline (clientId), with no secretRef naming the client's own Secret. */}}
+{{- define "trino.auth.oidcInline" -}}
+{{- $auth := .Values.global.security.auth | default dict -}}
+{{- $oidc := $auth.oidc | default dict -}}
+{{- if and (eq (lower (default "" $auth.mode)) "oidc") (not ($oidc.secretRef | default dict).name) $oidc.clientId -}}true{{- end -}}
+{{- end -}}
+
+{{/* The inline OIDC client secret. */}}
+{{- define "trino.auth.oidcClientSecret" -}}
+{{- if include "trino.auth.oidcInline" . -}}
+{{ ((.Values.global.security.auth | default dict).oidc | default dict).clientSecret | default "" }}
+{{- end -}}
+{{- end -}}
+
+{{/* The Secret holding them: global.security.auth.existingSecret, or <fullname>-auth-credentials (secret-auth-credentials.yaml). */}}
+{{- define "trino.auth.credentialsSecretName" -}}
+{{- $auth := .Values.global.security.auth | default dict -}}
+{{- default (printf "%s-auth-credentials" (include "trino.fullname" .)) $auth.existingSecret -}}
+{{- end -}}
+
+{{/* "true" when the pods read a bind password from that Secret. */}}
+{{- define "trino.auth.hasBindPassword" -}}
+{{- $auth := .Values.global.security.auth | default dict -}}
+{{- $mode := lower (default "" $auth.mode) -}}
+{{- if and (or (eq $mode "ldap") (eq $mode "ad")) (or (include "trino.auth.bindPassword" .) $auth.existingSecret) -}}true{{- end -}}
+{{- end -}}
+
+{{/*
+Pod annotation that restarts the coordinator when one of these credentials changes: the pod reads them from the
+Secret, so its spec does not change with them. The hash is salted with the internal shared secret (random, kept in
+the <fullname>-internal-communication Secret), so that the annotation, which anyone allowed to read Deployments can
+see, does not let them test guesses of a weak bind password. Empty while that Secret does not exist yet (first
+install, or no cluster to read it from): the annotation then appears with the next upgrade.
+*/}}
+{{- define "trino.auth.credentialsChecksum" -}}
+{{- $data := printf "%s\n%s" (include "trino.auth.bindPassword" .) (include "trino.auth.oidcClientSecret" .) -}}
+{{- $existing := lookup "v1" "Secret" .Release.Namespace (printf "%s-internal-communication" (include "trino.fullname" .)) -}}
+{{- if and $existing (or (include "trino.auth.hasBindPassword" .) (include "trino.auth.oidcInline" .)) -}}
+{{- printf "%s\n%s" (index ($existing.data | default dict) "shared-secret" | default "") $data | sha256sum -}}
+{{- end -}}
+{{- end -}}
+
+{{/* The property a "key=value" configuration line sets. */}}
+{{- define "trino.propertyKey" -}}
+{{- trim (first (splitList "=" (toString .))) -}}
+{{- end -}}
+
 {{/* Security profile wiring: map global.security.auth.* to Trino config/environment */}}
 {{- define "trino.security.env" -}}
 {{- $auth := .Values.global.security.auth | default dict -}}
@@ -92,8 +156,6 @@ Create chart name and version as used by the chart label.
   value: {{ $auth.ldap.url | quote }}
 - name: TRINO_LDAP_USER_BIND
   value: {{ $auth.ldap.bindDn | quote }}
-- name: TRINO_LDAP_PASSWORD
-  value: {{ $auth.ldap.bindPassword | quote }}
 - name: TRINO_LDAP_USER_DN_TEMPLATE
   value: {{ $auth.ldap.userDnTemplate | quote }}
 - name: TRINO_LDAP_BASE_DN
@@ -110,8 +172,6 @@ Create chart name and version as used by the chart label.
   value: {{ $auth.ad.baseDn | quote }}
 - name: TRINO_AD_BIND_DN
   value: {{ $auth.ad.bindDn | quote }}
-- name: TRINO_AD_BIND_PASSWORD
-  value: {{ $auth.ad.bindPassword | quote }}
 - name: TRINO_AD_USER_SEARCH_FILTER
   value: {{ $auth.ad.userSearchFilter | quote }}
 - name: TRINO_AD_DOMAIN
@@ -136,8 +196,13 @@ Create chart name and version as used by the chart label.
 {{- else }}
 - name: OIDC_CLIENT_ID
   value: {{ $oidc.clientId | quote }}
+{{- if include "trino.auth.oidcInline" . }}
 - name: OIDC_CLIENT_SECRET
-  value: {{ $oidc.clientSecret | quote }}
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "trino.auth.credentialsSecretName" . | quote }}
+      key: oidc-client-secret
+{{- end }}
 {{- end }}
 - name: TRINO_OIDC_SCOPES
   value: {{ default "openid email profile" $oidc.scopes | quote }}
@@ -153,6 +218,22 @@ Create chart name and version as used by the chart label.
 {{- end }}
 - name: TRINO_OIDC_SKIP_TLS_VERIFY
   value: {{ $oidc.skipTlsVerify | default false | quote }}
+{{- end }}
+{{- if include "trino.auth.hasBindPassword" . }}
+{{- /* One name for LDAP and AD: password-authenticator.properties reads TRINO_LDAP_PASSWORD. TRINO_AD_BIND_PASSWORD
+       is kept in AD mode for files written against earlier chart versions. */}}
+- name: TRINO_LDAP_PASSWORD
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "trino.auth.credentialsSecretName" . | quote }}
+      key: bind-password
+{{- if eq $auth.mode "ad" }}
+- name: TRINO_AD_BIND_PASSWORD
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "trino.auth.credentialsSecretName" . | quote }}
+      key: bind-password
+{{- end }}
 {{- end }}
 {{- end }}
 {{- end }}
@@ -248,6 +329,44 @@ Return busybox image honoring global registry defaults.
                  "digest" (default "" .root.Values.busyboxImage.digest)
                  "useRepositoryAsSoleImageReference" (default false .root.Values.busyboxImage.useRepositoryAsSoleImageReference) -}}
 {{- include "trino.image" (dict "root" .root "image" $img) -}}
+{{- end -}}
+
+{{/*
+Java heap options for jvm.config. Takes a dict: "jvm" (a coordinator.jvm or worker.jvm block) and
+"resources" (the same role's resources).
+An explicit maxHeapSize is rendered as a fixed -Xmx. Left empty, the heap is a share of the container
+memory limit instead, so it follows the limit when the limit changes and leaves the rest for what the JVM
+uses outside the heap (code cache, metaspace, thread stacks, direct buffers). A heap as large as the limit
+gets the container killed for running out of memory under load, before Java can raise an OutOfMemoryError.
+The initial heap defaults to the maximum, as in Trino's own jvm.config.
+Without a memory limit, Java would take that share of the node memory instead, in every Trino pod on the
+node: the heap then stays at the fixed 8G earlier chart versions used.
+*/}}
+{{- define "trino.jvm.heapOptions" -}}
+{{- $jvm := .jvm -}}
+{{- $limits := get (.resources | default dict) "limits" | default dict -}}
+{{- if $jvm.maxHeapSize -}}
+-Xmx{{ $jvm.maxHeapSize }}
+{{- else if get $limits "memory" -}}
+{{- $max := default 75 $jvm.maxRAMPercentage -}}
+-XX:MaxRAMPercentage={{ $max }}
+-XX:InitialRAMPercentage={{ default $max $jvm.initialRAMPercentage }}
+{{- else -}}
+-Xmx8G
+{{- end -}}
+{{- end -}}
+
+{{/*
+Resources of the chart's own init containers (keystore, Ranger directories, catalog store, Hadoop
+configuration overlay). Kubernetes counts init containers when it sets the pod QoS class, so these need
+requests equal to limits too for the pod to be Guaranteed.
+Takes a dict: "root" (the chart context) and "indent" (the column of the container's keys).
+*/}}
+{{- define "trino.initContainer.resources" -}}
+{{- $indent := int .indent -}}
+{{- with .root.Values.initContainerResources }}
+{{- printf "resources:\n%s" (toYaml . | indent 2) | nindent $indent }}
+{{- end }}
 {{- end -}}
 
 {{/*
@@ -473,12 +592,16 @@ the emptyDir is fresh on every pod start.
       mountPath: /original
     - name: hadoop-conf-merged
       mountPath: /merged
+  {{- if .Values.initContainerResources }}
+  {{- include "trino.initContainer.resources" (dict "root" . "indent" 2) }}
+  {{- else }}
   resources:
     requests:
       cpu: 10m
       memory: 32Mi
     limits:
       memory: 64Mi
+  {{- end }}
 {{- end }}
 {{- end -}}
 
