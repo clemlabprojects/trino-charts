@@ -219,7 +219,7 @@ serviceAccount:
 # @default -- see `values.yaml`
 bootstrapScript: |
   #!/bin/bash
-  if [ ! -f ~/bootstrap ]; then echo "Running Superset with uid {{ .Values.runAsUser }}" > ~/bootstrap; fi
+  if [ ! -f /tmp/bootstrap ]; then echo "Running Superset with uid {{ .Values.runAsUser }}" > /tmp/bootstrap; fi
 
 # -- The name of the secret which we will use to generate a superset_config.py file
 # Note: this secret must have the key superset_config.py in it and can include other files as well
@@ -597,12 +597,16 @@ supersetWorker:
     minAvailable: 1
     # -- If set, minAvailable must not be set - see https://kubernetes.io/docs/tasks/run-application/configure-pdb/#specifying-a-poddisruptionbudget
     maxUnavailable: 1
+  # -- Number of Celery worker processes. Without it Celery starts one per CPU of the node, which a container sees
+  # whole: 128 processes on a 128-thread host, each loading all of Superset, and the pod is killed for memory or by
+  # its liveness probe. Size supersetWorker.resources with it (about 400 MiB per process). Empty for Celery's default.
+  concurrency: 4
   # -- Worker startup command
-  # @default -- a `celery worker` command
+  # @default -- a `celery worker` command, with `--concurrency` from supersetWorker.concurrency
   command:
     - "/bin/sh"
     - "-c"
-    - ". {{ .Values.configMountPath }}/superset_bootstrap.sh; celery --app=superset.tasks.celery_app:app worker"
+    - ". {{ .Values.configMountPath }}/superset_bootstrap.sh; celery --app=superset.tasks.celery_app:app worker{{ with .Values.supersetWorker.concurrency }} --concurrency={{ . }}{{ end }}"
   # -- If true, forces deployment to reload on each upgrade
   forceReload: false
   # -- Init container
@@ -633,13 +637,14 @@ supersetWorker:
   # -- Labels to be added to supersetWorker pods
   podLabels: {}
   # -- Resource settings for the supersetWorker pods - these settings overwrite might existing values from the global resources object defined above.
-  resources: {}
-    # limits:
-    #  cpu: 100m
-    #  memory: 128Mi
-    # requests:
-    #  cpu: 100m
-    #  memory: 128Mi
+  # Sized for the default 4 worker processes: raise the memory with supersetWorker.concurrency. No CPU limit, which
+  # would only slow the worker down.
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      memory: 2Gi
   podSecurityContext: {}
   containerSecurityContext: {}
   strategy: {}
