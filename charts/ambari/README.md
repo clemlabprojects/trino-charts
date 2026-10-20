@@ -354,7 +354,7 @@ spec:
   source:
     repoURL: registry.clemlab.com/clemlabprojects/charts
     chart: ambari
-    targetRevision: 0.1.13
+    targetRevision: 0.1.14
     helm:
       valueFiles: []
       values: |
@@ -384,7 +384,7 @@ these may work; it is not one the release was checked on.
 
 | | Validated |
 | --- | --- |
-| Chart and image | chart 0.1.13 runs the `ambari-kdps` image named by its `appVersion`. Install a chart with the image it was released with: an earlier `image.tag` lacks what the chart relies on (OPERATIONS.md §2) |
+| Chart and image | chart 0.1.14 runs the `ambari-kdps` image named by its `appVersion`. Install a chart with the image it was released with: an earlier `image.tag` lacks what the chart relies on (OPERATIONS.md §2) |
 | OpenShift | 4.16 or later (the Route serving your own certificate needs it); validated on OpenShift Local (CRC) and a 4.x cluster of the development environment |
 | Kubernetes | a current release with `ingress.*` in place of the Route |
 | PostgreSQL | 16, which the image tests run against; the client in the image is the UBI 9 one. From 15 on, a user that does not own the database needs a grant on its `public` schema |
@@ -397,6 +397,7 @@ these may work; it is not one the release was checked on.
 | --- | --- |
 | 0.1.9 | 2.8.2.0-160; superseded |
 | 0.1.13 and later | an image built after 2.8.2.0-160 from the view that finds out it runs in a pod from the `KUBERNETES_SERVICE_*` variables, since the chart mounts no token by default. With an earlier image set `serviceAccount.automountToken=true`. `appVersion` in `Chart.yaml` names the image to use once a build contains it |
+| 0.1.14 | 2.8.2.0-166 (its `appVersion`) |
 
 ## Pointing the view at a cluster
 
