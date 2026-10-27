@@ -5,6 +5,13 @@
 {{- $path := (first (first .Values.ingress.hosts).paths).path | default "/" }}
 {{- $tlsSecret := "" }}
 {{- if .Values.ingress.tls }}{{- $tlsSecret = (tpl (first .Values.ingress.tls).secretName $) }}{{- end }}
+{{- $termination := include "trino.route.termination" . }}
+{{- $destinationCA := "" }}
+{{- if eq $termination "reencrypt" }}{{- $destinationCA = include "trino.route.destinationCA" . }}{{- end }}
+{{- /* auto: external certificates on Routes need no feature gate from OpenShift 4.19 (Kubernetes 1.32). */}}
+{{- $externalSetting := .Values.route.tls.externalCertificate }}
+{{- $externalSupported := ternary (semverCompare ">=1.32.0-0" .Capabilities.KubeVersion.Version) (eq (toString $externalSetting) "true") (eq (toString $externalSetting) "auto") }}
+{{- $external := and $tlsSecret $externalSupported (ne $termination "passthrough") }}
 apiVersion: route.openshift.io/v1
 kind: Route
 metadata:
@@ -19,26 +26,29 @@ metadata:
 spec:
   host: {{ $host | quote }}
   {{- /* passthrough routes cannot carry a path (the router can't read it without terminating TLS) */}}
-  {{- if not $https }}
+  {{- if ne $termination "passthrough" }}
   path: {{ $path | quote }}
   {{- end }}
   to:
     kind: Service
     name: {{ include "trino.fullname" . }}
     weight: 100
-  {{- if $https }}
   port:
+    {{- if $https }}
     targetPort: {{ .Values.server.config.https.port }}
-  tls:
-    termination: passthrough
-    insecureEdgeTerminationPolicy: Redirect
-  {{- else }}
-  port:
+    {{- else }}
     targetPort: {{ .Values.service.port }}
+    {{- end }}
   tls:
-    termination: edge
+    termination: {{ $termination }}
     insecureEdgeTerminationPolicy: Redirect
-    {{- if $tlsSecret }}
+    {{- if ne $termination "passthrough" }}
+    {{- if $external }}
+    {{- /* The router reads the certificate from its Secret: the key is not copied into the Route, and a renewed
+           certificate is served without a new release. */}}
+    externalCertificate:
+      name: {{ $tlsSecret }}
+    {{- else if $tlsSecret }}
     {{- $sec := lookup "v1" "Secret" .Release.Namespace $tlsSecret }}
     {{- if $sec }}
     certificate: |-
@@ -47,6 +57,42 @@ spec:
       {{- index $sec.data "tls.key" | b64dec | nindent 6 }}
     {{- end }}
     {{- end }}
-  {{- end }}
+    {{- if eq $termination "reencrypt" }}
+    destinationCACertificate: |-
+      {{- $destinationCA | nindent 6 }}
+    {{- end }}
+    {{- end }}
   wildcardPolicy: None
+{{- if $external }}
+---
+{{- /* The router reads an external certificate with its own service account, allowed this one Secret only. */}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ template "trino.coordinator" . }}-route-certificate
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "trino.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: [{{ $tlsSecret | quote }}]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ template "trino.coordinator" . }}-route-certificate
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "trino.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ template "trino.coordinator" . }}-route-certificate
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Values.route.tls.routerServiceAccount.name }}
+    namespace: {{ .Values.route.tls.routerServiceAccount.namespace }}
+{{- end }}
 {{- end }}

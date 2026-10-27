@@ -142,6 +142,14 @@ data:
     {{ $configValue }}
     {{- end }}
     {{- end }}
+    {{- /* A re-encrypting Route adds X-Forwarded-* headers, which Trino refuses (406) unless told to process them. */}}
+    {{- $setKeys := list }}
+    {{- range $configValue := concat (.Values.additionalConfigProperties | default list) (.Values.coordinator.additionalConfigProperties | default list) }}
+    {{- $setKeys = append $setKeys (include "trino.propertyKey" $configValue) }}
+    {{- end }}
+    {{- if and (eq (include "trino.route.termination" .) "reencrypt") (not (has "http-server.process-forwarded" $setKeys)) }}
+    http-server.process-forwarded=true
+    {{- end }}
     {{- if .Values.dynamicCatalogs.enabled }}
     catalog.management=dynamic
     catalog.store=file

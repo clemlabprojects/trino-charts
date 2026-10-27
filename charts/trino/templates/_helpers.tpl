@@ -693,3 +693,33 @@ Included on BOTH coordinator and worker (catalogs are loaded on every node).
       key: {{ default "secret_key" $ref.secretKeyKey | quote }}
 {{- end }}
 {{- end -}}
+
+{{/*
+The OpenShift Route's TLS termination: empty when the chart writes no Route; edge when Trino serves HTTP; with HTTPS
+inside, reencrypt when the Route has an ingress certificate and the CA that signed Trino's certificate (see
+trino.route.destinationCA), passthrough otherwise.
+*/}}
+{{- define "trino.route.termination" -}}
+{{- if and .Values.ingress.enabled .Values.route.enabled (.Capabilities.APIVersions.Has "route.openshift.io/v1") -}}
+{{- if not .Values.server.config.https.enabled -}}
+edge
+{{- else if and .Values.ingress.tls (include "trino.route.destinationCA" .) -}}
+reencrypt
+{{- else -}}
+passthrough
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{/* The CA the Route checks Trino's certificate against: route.tls.destinationCACertificate, or the ca.crt of the
+HTTPS keystore Secret. */}}
+{{- define "trino.route.destinationCA" -}}
+{{- if .Values.route.tls.destinationCACertificate -}}
+{{- .Values.route.tls.destinationCACertificate | trim -}}
+{{- else if .Values.server.config.https.keystore.secretName -}}
+{{- $keystore := lookup "v1" "Secret" .Release.Namespace .Values.server.config.https.keystore.secretName -}}
+{{- if and $keystore (hasKey ($keystore.data | default dict) "ca.crt") -}}
+{{- index $keystore.data "ca.crt" | b64dec | trim -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}

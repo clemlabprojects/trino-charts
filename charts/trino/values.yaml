@@ -1591,6 +1591,22 @@ commonLabels: {}
 # Ingress even on OpenShift. No effect on vanilla Kubernetes (Ingress only).
 route:
   enabled: true
+  tls:
+    # -- The router reads the ingress certificate from its Secret (ingress.tls[0].secretName) and a Role lets the
+    # router's service account read that Secret: the private key is not copied into the Route, where anyone allowed
+    # to read Routes could read it, and a renewed certificate is served without a new release. auto: on OpenShift
+    # 4.19 and later (Kubernetes 1.32), where external certificates on Routes need no feature gate; true: always
+    # (OpenShift 4.16 to 4.18 with the RouteExternalCertificate feature gate on); false: never, the certificate and
+    # key are copied into the Route.
+    externalCertificate: auto
+    # -- The router's service account, allowed to read the ingress certificate's Secret.
+    routerServiceAccount:
+      name: router
+      namespace: openshift-ingress
+    # -- With server.config.https.enabled, the Route serves the ingress certificate and re-encrypts to Trino, checking
+    # Trino's certificate against this CA (PEM). Left empty, the ca.crt of the HTTPS keystore Secret is used; when
+    # neither is there, the Route is passthrough and serves Trino's own certificate.
+    destinationCACertificate: ""
 
 ingress:
   enabled: false
