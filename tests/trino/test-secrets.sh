@@ -72,6 +72,7 @@ LDAP_ARGS=(
     --set global.security.auth.mode=ldap
     --set global.security.auth.ldap.url=ldaps://ldap.example.com
     --set global.security.auth.ldap.bindDn=cn=bind,dc=example
+    --set global.security.auth.ldap.baseDn=dc=example
     --set global.security.auth.ldap.bindPassword=Bind-Pass-1
 )
 
@@ -87,7 +88,8 @@ expect_absent "no AD variable in LDAP mode" "TRINO_AD_BIND_PASSWORD" "$out"
 
 echo "==> AD profile: one variable name for the authenticator, the AD password when no LDAP one is set"
 out=$(render --set global.security.auth.mode=ad --set global.security.auth.ad.url=ldaps://ad.example.com \
-    --set global.security.auth.ad.bindDn=cn=bind --set global.security.auth.ad.bindPassword=Ad-Pass-2)
+    --set global.security.auth.ad.bindDn=cn=bind --set global.security.auth.ad.baseDn=dc=example \
+    --set global.security.auth.ad.bindPassword=Ad-Pass-2)
 expect_hidden Ad-Pass-2 "$out"
 expect_contains "AD password in the credentials Secret" "bind-password: \"$(printf 'Ad-Pass-2' | base64)\"" "$out"
 expect_contains "authenticator reads TRINO_LDAP_PASSWORD" 'ldap.bind-password=${ENV:TRINO_LDAP_PASSWORD}' "$out"
@@ -124,6 +126,7 @@ out=$(render "${LDAP_ARGS[@]}" --set global.security.auth.existingSecret=trino-l
 expect_absent "no chart credentials Secret" "name: trino-test-clemlab-trino-auth-credentials" "$out"
 expect_count "bind password read from the operator's Secret" 'name: "trino-ldap-bind"' 2 "$out"
 out=$(render --set global.security.auth.mode=ldap --set global.security.auth.ldap.bindDn=cn=bind \
+    --set global.security.auth.ldap.baseDn=dc=example \
     --set global.security.auth.existingSecret=trino-ldap-bind)
 expect_contains "bind-password line without a password in the values" 'ldap.bind-password=${ENV:TRINO_LDAP_PASSWORD}' "$out"
 
