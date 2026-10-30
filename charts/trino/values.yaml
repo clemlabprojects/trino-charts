@@ -738,8 +738,9 @@ dynamicCatalogs:
 # (not KDPS) for the catalog action. The user is a Trino *file* password authenticator added
 # beside whatever the cluster already uses (LDAP/AD, OIDC+JWT, Kerberos, or none), so it works
 # in every auth mode. Requires `server.config.https.enabled=true` (Trino refuses PASSWORD over
-# plain HTTP). The password is generated once (kept across upgrades) into
-# `<release>-kdps-service-user` unless `existingSecret` is set (keys: `username`, `password`,
+# plain HTTP). The password is generated once (kept across upgrades) into the Secret
+# `<fullname>-kdps-service-user`, e.g. `trino-clemlab-trino-kdps-service-user` for a release `trino`
+# (key `password`), unless `existingSecret` is set (keys: `username`, `password`,
 # `password.db` = htpasswd/bcrypt line). With `dynamicCatalogs.enabled` the catalog ConfigMap is
 # no longer part of the pod checksum, so a catalog edit written back to `catalogs` does not roll
 # the pods — the running store already has it.
