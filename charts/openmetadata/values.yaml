@@ -13,6 +13,10 @@ global:
 
     auth:
       mode: basic   # basic | ldap | oidc
+      # An existing Secret holding the LDAP bind password (key `bind-password`) and the inline OIDC client secret (key
+      # `oidc-client-secret`), e.g. written by KDPS for a GitOps deploy: those secrets then stay out of the values, and
+      # <fullname>-credentials no longer holds them. Same keys as the Trino and Superset charts.
+      existingSecret: ""
       ldap:
         host: ""
         port: 389

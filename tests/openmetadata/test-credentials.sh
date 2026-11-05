@@ -138,6 +138,19 @@ for mode in ldap oidc; do
     expect_absent "no administrator password Job with $mode" "job-admin-password.yaml" "$out"
 done
 
+echo "==> GitOps: the LDAP bind password and the inline OIDC client secret read from a Secret KDPS wrote"
+out=$(render --set global.security.auth.mode=ldap --set global.security.auth.ldap.bindDn=cn=bind \
+    --set global.security.auth.existingSecret=om-kdps-auth)
+server=$(documents_of "openmetadata/templates/deployment.yaml" "$out")
+expect_contains "bind password read from the existing Secret" "name: om-kdps-auth" "$(grep -A3 -- 'AUTHENTICATION_LDAP_BIND_PASSWORD' <<<"$server")"
+expect_contains "with the Trino chart's key" "key: bind-password" "$(grep -A4 -- 'AUTHENTICATION_LDAP_BIND_PASSWORD' <<<"$server")"
+expect_absent "no bind password key in the credentials Secret" "ldap-bind-password:" "$(documents_of "openmetadata/templates/secret-credentials.yaml" "$out")"
+out=$(render --set global.security.auth.mode=oidc --set global.security.auth.oidc.clientId=om \
+    --set global.security.auth.oidc.clientSecret=Inline-Secret-9 --set global.security.auth.existingSecret=om-kdps-auth)
+server=$(documents_of "openmetadata/templates/deployment.yaml" "$out")
+expect_contains "inline OIDC client secret read from the existing Secret" "name: om-kdps-auth" "$(grep -A3 -- 'AUTHENTICATION_CLIENT_SECRET' <<<"$server")"
+expect_absent "the inline value is not rendered" "Inline-Secret-9" "$out"
+
 echo "==> no two resources share a kind and a name"
 out=$(render "${KDPS_ARGS[@]}")
 dupes=$(awk '/^kind: /{k=$2} /^  name: /{if (k) {print k "/" $2; k=""}}' <<<"$out" | sort | uniq -d)

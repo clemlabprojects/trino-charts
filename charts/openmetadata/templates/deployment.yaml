@@ -220,7 +220,7 @@ spec:
             - name: AUTHENTICATION_CLIENT_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "openmetadata.credentialsSecretName" . }}
+                  name: {{ include "openmetadata.authSecretName" . }}
                   key: oidc-client-secret
             {{- end }}
 
@@ -231,8 +231,8 @@ spec:
             - name: AUTHENTICATION_LDAP_BIND_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "openmetadata.credentialsSecretName" . }}
-                  key: ldap-bind-password
+                  name: {{ include "openmetadata.authSecretName" . }}
+                  key: {{ include "openmetadata.bindPasswordKey" . }}
             {{- end }}
 
             # ── Airflow account the server deploys pipelines with ──────────

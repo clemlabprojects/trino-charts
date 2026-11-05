@@ -249,6 +249,19 @@ Name of the credentials Secret.
 {{- end }}
 
 {{/*
+The Secret the LDAP bind password and the inline OIDC client secret are read from: global.security.auth.existingSecret,
+or the credentials Secret.
+*/}}
+{{- define "openmetadata.authSecretName" -}}
+{{- .Values.global.security.auth.existingSecret | default (include "openmetadata.credentialsSecretName" .) -}}
+{{- end }}
+
+{{/* The key of the LDAP bind password in that Secret: the keys of an existing Secret are the Trino chart's. */}}
+{{- define "openmetadata.bindPasswordKey" -}}
+{{- if .Values.global.security.auth.existingSecret -}}bind-password{{- else -}}ldap-bind-password{{- end -}}
+{{- end }}
+
+{{/*
 Name of the non-sensitive config ConfigMap.
 */}}
 {{- define "openmetadata.configMapName" -}}
