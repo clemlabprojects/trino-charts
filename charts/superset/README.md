@@ -56,6 +56,11 @@ The pods read the database and Redis passwords from `postgresql.auth.existingSec
 when they are set. `postgresql.primary.networkPolicy.allowExternal=false` and `redis.networkPolicy.allowExternal=false`
 let only the pods of the release reach them.
 
+Every other secret can stay out of the values as well, which a GitOps deploy needs, since its values are committed:
+the pods read the bind password (key `bind-password`) and the inline OIDC client secret (key `oidc-client-secret`) from
+`global.security.auth.existingSecret`, the `extraConfigs` files from `extraConfigsExistingSecret`, and
+`SUPERSET_SECRET_KEY` from a Secret listed in `envFromSecrets`.
+
 ## Requirements
 
 | Repository | Name | Version |
@@ -78,6 +83,7 @@ let only the pods of the release reach them.
 | extraConfigMountPath | string | `"/app/configs"` |  |
 | extraConfigs | object | `{}` | Extra files to mount on `extraConfigMountPath` (`/app/configs`), kept in a Secret since they may hold the passwords of database connections (`import_datasources*.yaml`) |
 | extraConfigsDefaultMode | int | `288` | File mode of the `extraConfigs` files (0440: read-only for the file owner and group). The pods must still be able to read them: on Kubernetes with a non-root `runAsUser` and no `fsGroup`, use 0444. |
+| extraConfigsExistingSecret | string | `""` | An existing Secret holding the `extraConfigs` files instead, e.g. written by KDPS for a GitOps deploy: the connection passwords then stay out of the values. When set, the chart renders no `<fullname>-extra-config`. |
 | extraEnv | object | `{}` | Extra environment variables that will be passed into pods |
 | extraEnvRaw | list | `[]` | Extra environment variables in RAW format that will be passed into pods |
 | extraSecretEnv | object | `{}` | Extra environment variables to pass as secrets. A name also set in `extraEnv` is taken from here only. |

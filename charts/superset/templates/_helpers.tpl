@@ -47,7 +47,9 @@ OIDC client secret is only a fallback: with secretRef.name the pods read the cli
 {{- define "superset.security.secretData" -}}
 {{- $auth := .Values.global.security.auth | default dict -}}
 {{- $mode := $auth.mode | default "" -}}
-{{- if eq $mode "ldap" }}
+{{- if $auth.existingSecret }}
+{{- /* The pods read them from global.security.auth.existingSecret. */}}
+{{- else if eq $mode "ldap" }}
 SECURITY_LDAP_BIND_PASSWORD: {{ ($auth.ldap | default dict).bindPassword | default "" | quote }}
 {{- else if eq $mode "ad" }}
 SECURITY_AD_BIND_PASSWORD: {{ ($auth.ad | default dict).bindPassword | default "" | quote }}
@@ -58,14 +60,32 @@ SECURITY_OIDC_CLIENT_SECRET: {{ ($auth.oidc | default dict).clientSecret | defau
 
 {{/* An env var read from one of the keys above. An operator-provided Secret may leave the key out. */}}
 {{- define "superset.security.secretEnvVar" -}}
+{{- $existing := ((.root.Values.global.security.auth | default dict).existingSecret) | default "" -}}
 - name: {{ .key }}
   valueFrom:
     secretKeyRef:
+      {{- if $existing }}
+      name: {{ $existing | quote }}
+      key: {{ index (dict "SECURITY_LDAP_BIND_PASSWORD" "bind-password" "SECURITY_AD_BIND_PASSWORD" "bind-password" "SECURITY_OIDC_CLIENT_SECRET" "oidc-client-secret") .key | quote }}
+      {{- else }}
       name: {{ include "superset.envSecretName" .root | quote }}
       key: {{ .key }}
       {{- if not .root.Values.secretEnv.create }}
       optional: true
       {{- end }}
+      {{- end }}
+{{- end -}}
+
+{{/*
+The Secret holding the extraConfigs files: extraConfigsExistingSecret, or the chart's own <fullname>-extra-config
+(secret-extra-config.yaml). Empty when there are none.
+*/}}
+{{- define "superset.extraConfigs.secretName" -}}
+{{- if .Values.extraConfigsExistingSecret -}}
+{{- tpl .Values.extraConfigsExistingSecret . -}}
+{{- else if .Values.extraConfigs -}}
+{{- printf "%s-extra-config" (include "superset.fullname" .) -}}
+{{- end -}}
 {{- end -}}
 
 {{/*

@@ -53,6 +53,10 @@ global:
       # (ldap, ad) or on /login/local (oidc). Off by default: while it is on, anyone who reaches Superset can try the
       # local passwords. Not used in mode none, where local accounts are the only way to sign in.
       localLoginFallback: false
+      # An existing Secret holding the bind password (key `bind-password`, ldap and ad modes) and the inline OIDC
+      # client secret (key `oidc-client-secret`), e.g. written by KDPS for a GitOps deploy: those secrets then stay out
+      # of the values. The chart's env Secret then leaves them out. Same keys as the Trino and OpenMetadata charts.
+      existingSecret: ""
       ldap:
         url: ""
         bindDn: ""
@@ -352,6 +356,10 @@ configOverrides:
   #   SECRET_KEY = 'CHANGE_ME_TO_A_COMPLEX_RANDOM_SECRET'
 
 # -- Same as above but the values are files
+
+# -- An existing Secret holding the `extraConfigs` files instead, e.g. written by KDPS for a GitOps deploy: the
+# connection passwords then stay out of the values. When set, the chart renders no `<fullname>-extra-config`.
+extraConfigsExistingSecret: ""
 configOverridesFiles: {}
   # extend_timeout: extend_timeout.py
   # enable_oauth: enable_oauth.py

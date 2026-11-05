@@ -141,6 +141,31 @@ expect_count "one checksum for every pod" "checksum/secrets" 1 "$first"
 if [ "$first" != "$second" ]; then echo "ok   - bind password change changes the checksum"; else echo "FAIL - bind password change keeps the checksum"; FAILED=1; fi
 expect_absent "no separate checksum of extraSecretEnv" "checksum/extraSecretEnv" "$(render "${KDPS_ARGS[@]}")"
 
+echo "==> GitOps: no secret in the values, each one read from a Secret KDPS wrote in the namespace"
+GITOPS_ARGS=(
+    --set global.security.auth.mode=ldap
+    --set global.security.auth.ldap.bindDn=cn=bind
+    --set global.security.auth.existingSecret=ss-kdps-auth
+    --set extraConfigsExistingSecret=ss-kdps-extra-config
+    --set 'envFromSecrets[0]=ss-kdps-env'
+)
+out=$(render "${GITOPS_ARGS[@]}")
+workloads=$(documents_of_kind "(Deployment|Job)" "$out")
+refs=$(grep -A1 -- 'name: "ss-kdps-auth"' <<<"$workloads" || true)
+expect_count "bind password read from the existing Secret in every pod" 'key: "bind-password"' 6 "$refs"
+expect_absent "no bind password key in the env Secret" "SECURITY_LDAP_BIND_PASSWORD:" "$(documents_of_kind Secret "$out")"
+expect_absent "no datasource Secret rendered" "name: ss-superset-extra-config" "$out"
+expect_count "datasource files mounted from the existing Secret" "secretName: ss-kdps-extra-config" 4 "$workloads"
+expect_count "SECRET_KEY Secret read by every pod" 'name: "ss-kdps-env"' 6 "$workloads"
+out=$(render --set global.security.auth.mode=ad --set global.security.auth.existingSecret=ss-kdps-auth)
+refs=$(grep -A1 -- 'name: "ss-kdps-auth"' <<<"$out" || true)
+expect_count "AD bind password read from the existing Secret" 'key: "bind-password"' 6 "$refs"
+out=$(render --set global.security.auth.mode=oidc --set global.security.auth.oidc.clientId=superset \
+    --set global.security.auth.existingSecret=ss-kdps-auth)
+refs=$(grep -A1 -- 'name: "ss-kdps-auth"' <<<"$out" || true)
+expect_count "inline OIDC client secret read from the existing Secret" 'key: "oidc-client-secret"' 6 "$refs"
+expect_absent "no client secret key in the env Secret" "SECURITY_OIDC_CLIENT_SECRET:" "$(documents_of_kind Secret "$out")"
+
 echo "==> no two resources share a kind and a name (the datasource Secret replaces a ConfigMap of the same name)"
 out=$(render "${KDPS_ARGS[@]}" --set init.enabled=true)
 dupes=$(awk '/^kind: /{k=$2} /^  name: /{if (k) {print k "/" $2; k=""}}' <<<"$out" | sort | uniq -d)

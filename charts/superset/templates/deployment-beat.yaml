@@ -107,7 +107,7 @@ spec:
             - name: superset-config
               mountPath: {{ .Values.configMountPath | quote }}
               readOnly: true
-            {{- if .Values.extraConfigs }}
+            {{- if include "superset.extraConfigs.secretName" . }}
             - name: superset-extra-config
               mountPath: {{ .Values.extraConfigMountPath | quote }}
               readOnly: true
@@ -157,10 +157,10 @@ spec:
         - name: superset-config
           secret:
             secretName: {{ tpl .Values.configFromSecret . }}
-        {{- if .Values.extraConfigs }}
+        {{- if include "superset.extraConfigs.secretName" . }}
         - name: superset-extra-config
           secret:
-            secretName: {{ template "superset.fullname" . }}-extra-config
+            secretName: {{ include "superset.extraConfigs.secretName" . }}
             defaultMode: {{ .Values.extraConfigsDefaultMode }}
         {{- end }}
         {{- with .Values.extraVolumes }}
