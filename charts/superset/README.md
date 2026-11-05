@@ -81,6 +81,7 @@ the pods read the bind password (key `bind-password`) and the inline OIDC client
 | envFromSecret | string | `"{{ template \"superset.fullname\" . }}-env"` | The name of the secret which we will use to populate env vars in deployed pods This can be useful for secret keys, etc. |
 | envFromSecrets | list | `[]` | This can be a list of templated strings |
 | extraConfigMountPath | string | `"/app/configs"` |  |
+| commonLabels | object | `{}` | Labels added to every resource of the release, e.g. those KDPS finds a release applied from Git by |
 | extraConfigs | object | `{}` | Extra files to mount on `extraConfigMountPath` (`/app/configs`), kept in a Secret since they may hold the passwords of database connections (`import_datasources*.yaml`) |
 | extraConfigsDefaultMode | int | `288` | File mode of the `extraConfigs` files (0440: read-only for the file owner and group). The pods must still be able to read them: on Kubernetes with a non-root `runAsUser` and no `fsGroup`, use 0444. |
 | extraConfigsExistingSecret | string | `""` | An existing Secret holding the `extraConfigs` files instead, e.g. written by KDPS for a GitOps deploy: the connection passwords then stay out of the values. When set, the chart renders no `<fullname>-extra-config`. |

@@ -1294,3 +1294,11 @@ runAsUser: {{ .Values.runAsUser }}
 runAsUser: {{ .Values.runAsUser | default 0 }}
 {{- end }}
 {{- end -}}
+
+{{/*
+Labels every resource of the release carries besides its own (commonLabels), such as those KDPS finds a release
+applied from Git by: Argo CD replaces app.kubernetes.io/instance with the name of its own Application.
+*/}}
+{{- define "superset.commonLabels" -}}
+{{- with .Values.commonLabels }}{{ tpl (toYaml .) $ }}{{- end }}
+{{- end -}}

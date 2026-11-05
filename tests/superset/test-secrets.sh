@@ -166,6 +166,17 @@ refs=$(grep -A1 -- 'name: "ss-kdps-auth"' <<<"$out" || true)
 expect_count "inline OIDC client secret read from the existing Secret" 'key: "oidc-client-secret"' 6 "$refs"
 expect_absent "no client secret key in the env Secret" "SECURITY_OIDC_CLIENT_SECRET:" "$(documents_of_kind Secret "$out")"
 
+echo "==> commonLabels: on every Deployment, Service, Ingress and Route, never in a selector"
+out=$(render --set 'commonLabels.kdps\.clemlab\.com/release=ss' --set ingress.enabled=true)
+for kind in Deployment Service Ingress; do
+    docs=$(documents_of_kind "$kind" "$out")
+    total=$(grep -c "^kind: $kind" <<<"$docs" || true)
+    expect_count "the label on every $kind" "kdps.clemlab.com/release: ss" "$total" "$docs"
+done
+selectors=$(grep -A4 -- 'matchLabels:' <<<"$out" || true)
+expect_absent "not in a selector" "kdps.clemlab.com/release" "$selectors"
+expect_absent "nothing without commonLabels" "kdps.clemlab.com/release" "$(render)"
+
 echo "==> no two resources share a kind and a name (the datasource Secret replaces a ConfigMap of the same name)"
 out=$(render "${KDPS_ARGS[@]}" --set init.enabled=true)
 dupes=$(awk '/^kind: /{k=$2} /^  name: /{if (k) {print k "/" $2; k=""}}' <<<"$out" | sort | uniq -d)

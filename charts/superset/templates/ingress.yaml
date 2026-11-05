@@ -30,6 +30,7 @@ metadata:
     chart: {{ template "superset.chart" . }}
     release: {{ .Release.Name }}
     heritage: {{ .Release.Service }}
+    {{- include "superset.commonLabels" $ | nindent 4 }}
   {{- $authMode := "" }}
   {{- if .Values.global }}{{- if .Values.global.security }}{{- if .Values.global.security.auth }}
   {{- $authMode = .Values.global.security.auth.mode | default "" }}
