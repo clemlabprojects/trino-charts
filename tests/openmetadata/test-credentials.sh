@@ -151,6 +151,12 @@ server=$(documents_of "openmetadata/templates/deployment.yaml" "$out")
 expect_contains "inline OIDC client secret read from the existing Secret" "name: om-kdps-auth" "$(grep -A3 -- 'AUTHENTICATION_CLIENT_SECRET' <<<"$server")"
 expect_absent "the inline value is not rendered" "Inline-Secret-9" "$out"
 
+echo "==> commonLabels: on the server's Deployment and Service, never in a selector"
+out=$(render --set 'commonLabels.kdps\.clemlab\.com/release=om')
+server=$(documents_of "openmetadata/templates/deployment.yaml" "$out")
+expect_contains "the label on the server Deployment" "kdps.clemlab.com/release: om" "$(grep -B30 -- 'spec:' <<<"$server" | head -30)"
+expect_absent "not in a selector" "kdps.clemlab.com/release" "$(grep -A4 -- 'matchLabels:' <<<"$out" || true)"
+
 echo "==> no two resources share a kind and a name"
 out=$(render "${KDPS_ARGS[@]}")
 dupes=$(awk '/^kind: /{k=$2} /^  name: /{if (k) {print k "/" $2; k=""}}' <<<"$out" | sort | uniq -d)

@@ -1,6 +1,9 @@
 # Default values for the clemlab OpenMetadata chart.
 # Aligns with the global.security.* convention used by Trino and Superset.
 
+# Labels added to the resources of the release, e.g. those KDPS finds a release applied from Git by.
+commonLabels: {}
+
 global:
   imageRegistry: "registry.clemlab.com/clemlabprojects"  # Bitnami subcharts (postgresql)
   dockerRegistry: "registry.clemlab.com/clemlabprojects"  # opensearch-project subchart

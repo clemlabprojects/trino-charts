@@ -36,6 +36,11 @@ app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 {{- end }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
 app.kubernetes.io/part-of: openmetadata
+{{- /* commonLabels: such as those KDPS finds a release applied from Git by, Argo CD replacing
+       app.kubernetes.io/instance with the name of its own Application. */}}
+{{- with .Values.commonLabels }}
+{{ tpl (toYaml .) $ }}
+{{- end }}
 {{- end }}
 
 {{- define "openmetadata.selectorLabels" -}}
