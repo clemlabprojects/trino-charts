@@ -70,6 +70,14 @@ jobs:
       - name: Lint chart
         run: helm lint "${CHART_DIR}"
 
+      # The tests check the release notes with 'helm install --dry-run=client', which Helm 3 runs only
+      # against a reachable cluster (it checks the cluster and the release name, even though it
+      # creates nothing): a throwaway one, as in ci-cd.yaml.
+      - name: Create kind cluster
+        uses: helm/kind-action@v1.12.0
+        with:
+          version: v0.30.0
+
       # The chart has to render for both targets it claims to support, and a template that only
       # ever sees its defaults is a template nobody has tested.
       - name: Render the shapes the chart claims to support
