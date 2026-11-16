@@ -1,4 +1,4 @@
-name: Publish clemlab-trino to Clemlab OCI
+name: Publish trino to Clemlab OCI
 
 on:
   workflow_dispatch: {}
