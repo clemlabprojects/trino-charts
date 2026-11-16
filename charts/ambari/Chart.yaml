@@ -5,11 +5,11 @@ description: |
   the console that deploys and governs the Kubernetes data platform services. Built for the
   cluster it manages: it runs inside OpenShift or Kubernetes and is deployed by Argo CD.
 type: application
-version: 0.1.13
+version: 0.1.14
 # The ambari-kdps image the chart runs by default. The chart is released only once this names an
 # image later than 2.8.2.0-160, built from the entrypoint the chart relies on: with an earlier one
 # the pod never becomes Ready (.github/scripts/ambari-image-supported.sh).
-appVersion: "2.8.2.0-160"
+appVersion: "2.8.2.0-166"
 keywords: [ambari, kdps, clemlab, openshift, data-platform]
 home: https://clemlab.com
 sources:
