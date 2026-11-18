@@ -342,6 +342,14 @@ LOG_LEVEL="DEBUG"
 def env(key, default=None):
     return os.getenv(key, default)
 
+# Default row limit of chart data queries: ROW_LIMIT from the environment when set (KDPS passes the "Row Limit" of its
+# superset-env configuration), Superset's own default otherwise or when the value is not a positive number.
+try:
+    if int(env('ROW_LIMIT') or 0) > 0:
+        ROW_LIMIT = int(env('ROW_LIMIT'))
+except ValueError:
+    logging.getLogger(__name__).warning("ROW_LIMIT=%r is not a number: Superset's default row limit applies", env('ROW_LIMIT'))
+
 import re
 
 # --- KDPS dynamic role mapping ---------------------------------------------------------------
