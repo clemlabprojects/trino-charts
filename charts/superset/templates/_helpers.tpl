@@ -592,6 +592,9 @@ a{display:block;text-align:center;margin-top:14px;color:#008e6e;font-size:12px}<
     OAUTH_PROVIDERS = [
         {
             'name': 'generic',
+            # What the sign-in button says ("Sign In with SSO"): the name is in the login and callback URLs registered
+            # with the identity provider, so it stays "generic" (kdps_login_oauth.html shows the label).
+            'label': env('SECURITY_OIDC_PROVIDER_LABEL', 'SSO'),
             'token_key': 'access_token',
             'icon': 'fa-user',
             'remote_app': {
@@ -913,6 +916,27 @@ def FLASK_APP_MUTATOR(app):
         return set()
 
     HiveEngineSpec.get_catalog_names = _no_catalogs
+    _kdps_login_page(app)
+
+
+# The OAuth login page shows the provider's label on its button (kdps_login_oauth.html, next to this file); the stock
+# page shows its name, which is "generic". Never stops Superset from starting: the stock page is kept on any error.
+def _kdps_login_page(app):
+    import logging
+    import os
+    try:
+        import jinja2
+        page = os.path.join(os.path.dirname(os.path.abspath(__file__)), "kdps_login_oauth.html")
+        if not os.path.isfile(page):
+            return
+        with open(page, encoding="utf-8") as f:
+            source = f.read()
+        app.jinja_loader = jinja2.ChoiceLoader([
+            jinja2.DictLoader({"appbuilder/general/security/login_oauth.html": source}),
+            app.jinja_loader,
+        ])
+    except Exception as exc:  # pragma: no cover
+        logging.getLogger(__name__).warning("KDPS: kept the stock login page: %s", exc)
 {{- end }}
 
 {{- define "supersetCeleryBeat.selectorLabels" -}}
