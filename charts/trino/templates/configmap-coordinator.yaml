@@ -79,6 +79,31 @@ data:
   {{- if $coordinatorJmx.enabled }}
     -Dcom.sun.management.jmxremote.rmi.port={{- $coordinatorJmx.serverPort }}
   {{- end }}
+  {{- if eq (include "trino.rangerAuditJaas.enabled" .) "true" }}
+    -Djava.security.auth.login.config={{ .Values.server.config.path }}/ranger-audit-jaas.conf
+  {{- end }}
+
+  {{- if eq (include "trino.rangerAuditJaas.enabled" .) "true" }}
+  {{- /*
+  Kerberos login the Ranger audit writers fall back to. Since JDK 24 a thread no longer inherits the Kerberos
+  identity of the thread that created it: the Solr client's worker threads, and its ZooKeeper client, had no
+  credentials, Java tried to prompt for a password ("Cannot read from System.in") and Solr answered 401. Java
+  reads the com.sun.security.jgss.krb5.initiate entry when a thread has no identity, ZooKeeper reads Client.
+  */}}
+  ranger-audit-jaas.conf: |
+    com.sun.security.jgss.krb5.initiate {
+      com.sun.security.auth.module.Krb5LoginModule required
+      useKeyTab=true storeKey=true doNotPrompt=true
+      keyTab={{ .Values.ranger.audit.kerberos.keytab | quote }}
+      principal={{ .Values.ranger.audit.kerberos.principal | quote }};
+    };
+    Client {
+      com.sun.security.auth.module.Krb5LoginModule required
+      useKeyTab=true storeKey=true doNotPrompt=true
+      keyTab={{ .Values.ranger.audit.kerberos.keytab | quote }}
+      principal={{ .Values.ranger.audit.kerberos.principal | quote }};
+    };
+  {{- end }}
 
   config.properties: |
     coordinator=true

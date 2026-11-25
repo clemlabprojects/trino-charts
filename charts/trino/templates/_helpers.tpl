@@ -723,3 +723,12 @@ HTTPS keystore Secret. */}}
 {{- end -}}
 {{- end -}}
 {{- end -}}
+
+{{/*
+Whether the coordinator gets a JAAS file for the Ranger audit writers: Ranger access control, and the principal
+and keytab the audit writers log in with (ranger.audit.kerberos, set by KDPS on a Kerberized cluster).
+*/}}
+{{- define "trino.rangerAuditJaas.enabled" -}}
+{{- $k := dig "audit" "kerberos" (dict) .Values.ranger -}}
+{{- if and (eq .Values.accessControl.type "ranger") $k.principal $k.keytab -}}true{{- else -}}false{{- end -}}
+{{- end -}}

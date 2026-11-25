@@ -249,6 +249,14 @@ ranger:
   policyCacheDir: /opt/trino/data/ranger-trino-plugin/cache
   policymgrssl_path: /etc/trino/ranger/ranger-policymgr-ssl-trino.xml
   auditConfigMapName: ranger-trino-audit
+  audit:
+    # The Kerberos principal and keytab path (in the pod) the Ranger audit writers log in with. KDPS sets them on a
+    # Kerberized cluster. When both are set, the coordinator gets a JAAS file and starts with
+    # -Djava.security.auth.login.config: on JDK 24 and later the Solr client's threads otherwise have no Kerberos
+    # credentials and Solr answers 401.
+    kerberos:
+      principal: ""
+      keytab: ""
   securityConfigMapName: ranger-trino-plugin-properties
   # If you keep SSL XML separate from security XML, uncomment and use this instead:
   # sslConfigMapName: trino-ranger-ssl
