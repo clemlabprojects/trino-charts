@@ -845,7 +845,8 @@ dependencies:
     workers:
       extraInitContainers:
         - name: kinit-bootstrap
-          image: registry.clemlab.com/clemlabprojects/openmetadata-ingestion:1.12.6.1.3.2.0-69
+          # Same image as Airflow (images.airflow), so it follows a mirror registry with it.
+          image: '{{ .Values.images.airflow.repository }}:{{ .Values.images.airflow.tag }}'
           imagePullPolicy: IfNotPresent
           # This init container runs the kinit — so it MUST see the KDPS-staged krb5.conf (realm ->
           # KDC map). The base container gets KRB5_CONFIG + the krb5-conf mount from the pod env/
@@ -887,7 +888,8 @@ dependencies:
       # tolerant logic, looped) — mainly so the api-server/managed-apis path can use Kerberos.
       extraContainers:
         - name: kinit-renew
-          image: registry.clemlab.com/clemlabprojects/openmetadata-ingestion:1.12.6.1.3.2.0-69
+          # Same image as Airflow (images.airflow), so it follows a mirror registry with it.
+          image: '{{ .Values.images.airflow.repository }}:{{ .Values.images.airflow.tag }}'
           imagePullPolicy: IfNotPresent
           # Same as kinit-bootstrap: this sidecar runs kinit, so it needs KRB5_CONFIG + the
           # krb5-conf mount (not inherited by extraContainers) or it can't find the KDC.
