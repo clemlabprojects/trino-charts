@@ -448,6 +448,17 @@ spec:
             - name: hadoop-conf
               mountPath: {{ .Values.hadoopConf.mountPath | default "/etc/hadoop/conf" }}
             {{- end }}
+            {{- /*
+            The same files inside the Ranger plugin's folder, which puts them on the plugin's classpath. The
+            plugin's HDFS audit writer builds its own Hadoop Configuration, which only reads core-site.xml and
+            hdfs-site.xml from the classpath: without this it knows neither the name service of a
+            high-availability HDFS (UnknownHostException) nor the cluster's security settings.
+            */}}
+            {{- if and (eq .Values.accessControl.type "ranger") .Values.hadoopConf.enabled (or .Values.hadoopConf.configMapName .Values.hadoopConf.secretName) }}
+            - name: {{ if eq (include "trino.hadoopConf.groupMapping.enabled" .) "true" }}hadoop-conf-merged{{ else }}hadoop-conf{{ end }}
+              mountPath: {{ .Values.server.node.pluginDir }}/ranger/hadoop-conf
+              readOnly: true
+            {{- end }}
             {{ include "trino.truststore.volumeMount" . | nindent 12 }}
             {{ include "trino.vault.volumeMount" . | nindent 12 }}
             ## ---------- Kerberos krb5.conf mount ----------

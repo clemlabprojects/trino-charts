@@ -59,4 +59,25 @@ else
     echo "ok   - no JAAS file without Ranger access control"
 fi
 
+# The HDFS audit writer reads core-site.xml and hdfs-site.xml from the plugin's classpath only: the Hadoop
+# configuration is mounted in the Ranger plugin's folder as well.
+out=$(render --set ranger.admin.ssl.enabled=false --set hadoopConf.enabled=true)
+if grep -qF "mountPath: /usr/lib/trino/plugin/ranger/hadoop-conf" <<<"$out"; then
+    echo "ok   - the Hadoop configuration is on the Ranger plugin's classpath"
+else
+    echo "FAIL - the Hadoop configuration is not mounted in the Ranger plugin's folder"; FAILED=1
+fi
+out=$(render --set ranger.admin.ssl.enabled=false)
+if grep -qF "plugin/ranger/hadoop-conf" <<<"$out"; then
+    echo "FAIL - the plugin mount is rendered without a Hadoop configuration"; FAILED=1
+else
+    echo "ok   - no plugin mount without a Hadoop configuration"
+fi
+out=$(helm template trino-test "$CHART" --namespace analytics --set server.workers=1 --set hadoopConf.enabled=true)
+if grep -qF "plugin/ranger/hadoop-conf" <<<"$out"; then
+    echo "FAIL - the plugin mount is rendered without Ranger access control"; FAILED=1
+else
+    echo "ok   - no plugin mount without Ranger access control"
+fi
+
 exit $FAILED
