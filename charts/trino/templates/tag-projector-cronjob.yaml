@@ -19,6 +19,8 @@ containers:
         value: {{ required "ranger.serviceName is required when tagSync.enabled" .Values.ranger.serviceName | quote }}
       - name: SOURCE_TYPES
         value: {{ .Values.tagSync.sourceTypes | quote }}
+      - name: DEFAULT_CATALOG
+        value: {{ .Values.tagSync.defaultCatalog | default "hive" | quote }}
       - name: CATALOG_MAP
         value: {{ .Values.tagSync.catalogMap | toJson | quote }}
       - name: DRY_RUN

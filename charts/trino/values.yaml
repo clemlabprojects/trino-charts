@@ -287,20 +287,21 @@ ranger:
 # associations from the component service onto the Trino service, so those policies apply to Trino.
 #
 # Everything is resolved from Ranger at run time: the tag service is found via the Trino repo's
-# tagService, and the source Hive service is the one sharing that tag service — no repo name
-# (cm_hive/cm_tag or otherwise) is assumed. KDPS fills url/serviceName/credentials from the context;
+# tagService, and the source Hive services are those sharing that tag service (a Cloudera cluster has
+# two: cm_hive and an Impala-specific one) — no repo name (cm_hive/cm_tag or otherwise) is assumed. KDPS fills url/serviceName/credentials from the context;
 # the operator only turns this on. Requires accessControl.type=ranger.
 tagSync:
   enabled: false
   image:
     registry: ""                    # falls back to global.imageRegistry
     repository: kdps-tag-projector
-    tag: "0.1.0"
+    tag: "0.1.1"
     pullPolicy: IfNotPresent
   schedule: "*/5 * * * *"           # cadence; piggybacks on Atlas->tagsync's own period
   runOnInstall: true                # also run once at install/upgrade for immediate population
   sourceTypes: "hive"              # component service types to project from
-  catalogMap: {}                    # {sourceServiceName: trinoCatalog}; default: single hive -> "hive"
+  defaultCatalog: hive              # Trino catalog every source is projected to when catalogMap is empty
+  catalogMap: {}                    # {sourceServiceName: trinoCatalog}: only the sources it names are projected
   dryRun: false
   ranger:
     url: ""                         # Ranger admin URL; KDPS resolves from the context
